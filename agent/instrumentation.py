@@ -354,7 +354,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
         "ts": time.time(),
     })
 
-    status_url = confirm_status_url or f"http://localhost:8766/confirm-status?id={confirm_id}"
+    status_url = f"{confirm_status_url or 'http://localhost:8766/confirm-status'}?id={confirm_id}"
     deadline = time.time() + timeout
     while time.time() < deadline:
         try:
