@@ -210,3 +210,9 @@ export function IconLock({ size = 14, color = "currentColor", style }) {
     </svg>
   );
 }
+
+// Horizontal logo (mark + wordmark) from the brand kit, for light surfaces.
+// The kit's minimum width is 80px, so don't go below height 26.
+export function ArgoxLogo({ height = 26 }) {
+  return <img src="/argox-lockup-black.svg" alt="Argox" height={height} style={{ display: "block", height, width: "auto" }} />;
+}

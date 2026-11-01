@@ -5,7 +5,7 @@ import PolicyEditor from "./PolicyEditor.jsx";
 import ConnectPanel from "./ConnectPanel.jsx";
 import LoginPage from "./LoginPage.jsx";
 import Home from "./Home.jsx";
-import { T } from "./theme.jsx";
+import { T, ArgoxLogo } from "./theme.jsx";
 import { API_BASE, HOSTED, WS_BASE } from "./lib/config.js";
 import { supabase } from "./lib/supabase.js";
 
@@ -90,8 +90,7 @@ export default function App() {
     <div style={{ height: "100vh", width: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: T.page, fontFamily: T.font }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <ShieldMark />
-          <span style={{ fontSize: 15, fontWeight: 500, letterSpacing: 0.1, color: T.ink, fontFamily: T.fontSerif }}>Argox</span>
+          <ArgoxLogo />
         </div>
         <div style={{ display: "flex", gap: 4, background: T.surfaceRaised, borderRadius: 999, padding: 3 }}>
           <TabButton label="Connect" active={view === "connect"} onClick={() => setView("connect")} />
@@ -181,17 +180,3 @@ const signOutStyle = {
   textDecoration: "underline",
 };
 
-function ShieldMark() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 16 16">
-      <path
-        d="M8 1.3l5.2 1.9v4.1c0 3.4-2.2 6-5.2 7.4-3-1.4-5.2-4-5.2-7.4V3.2z"
-        fill="none"
-        stroke={T.accent}
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path d="M5.6 8l1.7 1.7 3.1-3.4" fill="none" stroke={T.accent} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}

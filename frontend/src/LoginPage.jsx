@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { T } from "./theme.jsx";
+import { T, ArgoxLogo } from "./theme.jsx";
 import { supabase } from "./lib/supabase.js";
 
 /**
@@ -45,7 +45,7 @@ export default function LoginPage({ initialMode = "login", onBack }) {
   return (
     <div style={{ minHeight: "100vh", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, background: T.page, fontFamily: T.font }}>
       <div style={{ width: 340, maxWidth: "calc(100% - 32px)", padding: 28, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface }}>
-        <div style={{ fontSize: 20, fontWeight: 500, fontFamily: T.fontSerif, marginBottom: 4 }}>Argox</div>
+        <div style={{ marginBottom: 8 }}><ArgoxLogo /></div>
         <div style={{ fontSize: 13, color: T.inkSecondary, marginBottom: 20 }}>
           {mode === "login" && "Sign in to your dashboard"}
           {mode === "signup" && "Create an account"}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { T } from "./theme.jsx";
+import { T, ArgoxLogo } from "./theme.jsx";
 import IsoTrail from "./IsoTrail.jsx";
 import { buildTrail } from "./pathLayout.js";
 
@@ -82,8 +82,7 @@ export default function Home({ onSignIn, onGetStarted }) {
       <nav className="ax-nav">
         <div className="ax-wrap ax-nav-inner">
           <a href="/" className="ax-brand">
-            <ShieldMark size={20} />
-            <span>Argox</span>
+            <ArgoxLogo />
           </a>
           <div className="ax-nav-links">
             <a href="#how">How it works</a>
@@ -219,8 +218,7 @@ export default function Home({ onSignIn, onGetStarted }) {
       <footer className="ax-footer">
         <div className="ax-wrap ax-footer-inner">
           <div className="ax-brand ax-brand-sm">
-            <ShieldMark size={16} />
-            <span>Argox</span>
+            <ArgoxLogo />
           </div>
           <div className="ax-footer-links">
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
@@ -363,15 +361,6 @@ function Verdict({ decision }) {
     <span className="ax-verdict" style={{ color: v.color, borderColor: v.color + "55", background: v.color + "12" }}>
       {v.label}
     </span>
-  );
-}
-
-function ShieldMark({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" aria-hidden="true">
-      <path d="M8 1.3l5.2 1.9v4.1c0 3.4-2.2 6-5.2 7.4-3-1.4-5.2-4-5.2-7.4V3.2z" fill="none" stroke={T.accent} strokeWidth="1.3" strokeLinejoin="round" />
-      <path d="M5.6 8l1.7 1.7 3.1-3.4" fill="none" stroke={T.accent} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
