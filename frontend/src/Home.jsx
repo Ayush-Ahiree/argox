@@ -11,7 +11,7 @@ import { buildTrail } from "./pathLayout.js";
  * changes, re-run those inputs and update the text here to match.
  */
 
-const GITHUB_URL = "https://github.com/Ayush-Ahiree/agent-trial";
+const GITHUB_URL = "https://github.com/Ayush-Ahiree/argox";
 const PYPI_URL = "https://pypi.org/project/argox/";
 const NPM_URL = "https://www.npmjs.com/package/@amisecured/argox";
 
