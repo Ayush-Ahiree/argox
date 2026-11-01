@@ -260,10 +260,14 @@ function linkPath(a, b) {
   return [x, a.y + a.d, x, b.y];
 }
 
-export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, onSelect, focusCat, onFocusCat }) {
+// `embedded` is the homepage demo: no wheel zoom (it would hijack page
+// scroll), no drag/pan, no dashboard controls. `layoutSteps` sizes the
+// deck for a known final step count so the camera doesn't re-frame as
+// steps arrive.
+export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0 }) {
   const steps = trail.nodes.filter((n) => !n.isStart);
   const start = trail.nodes.find((n) => n.isStart);
-  const L = useMemo(() => layout(steps.length), [steps.length]);
+  const L = useMemo(() => layout(Math.max(steps.length, layoutSteps)), [steps.length, layoutSteps]);
 
   const wrapRef = useRef();
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -281,6 +285,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
     if (!el) return;
     const observer = new ResizeObserver(([entry]) => setSize({ width: entry.contentRect.width, height: entry.contentRect.height }));
     observer.observe(el);
+    if (embedded) return () => observer.disconnect();
     const onWheel = (e) => {
       e.preventDefault();
       setZoom((z) => Math.min(3, Math.max(0.35, z * Math.exp(-e.deltaY * 0.0015))));
@@ -290,7 +295,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       observer.disconnect();
       el.removeEventListener("wheel", onWheel);
     };
-  }, []);
+  }, [embedded]);
 
   // re-frame when switching sessions
   useEffect(() => {
@@ -311,7 +316,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
   const projW = gw * cosRz + gh * sinRz;
   const projH = (gw * sinRz + gh * cosRz) * cosRx + zMax * sinRx;
   const fit = size.width ? Math.min(size.width / projW, size.height / projH) * 1.02 : 0.5;
-  const scale = fit * zoom;
+  // the homepage panel is small: trim the empty ground margin a touch
+  const scale = fit * zoom * (embedded ? 1.06 : 1);
   const zLift = (zMax * sinRx * scale) / 2;
 
   const catStats = useMemo(
@@ -337,6 +343,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
   const newestId = steps.length ? steps[steps.length - 1].id : null;
 
   const onPointerDown = (e) => {
+    if (embedded) return;
     dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false };
   };
   const onPointerMove = (e) => {
@@ -386,9 +393,9 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
         position: "absolute",
         inset: 0,
         overflow: "hidden",
-        cursor: dragging ? "grabbing" : "grab",
+        cursor: embedded ? "default" : dragging ? "grabbing" : "grab",
         background: `radial-gradient(ellipse at 50% 45%, ${T.surface} 0%, ${T.page} 55%, #f1eee7 100%)`,
-        touchAction: "none",
+        touchAction: embedded ? "auto" : "none",
         userSelect: "none",
       }}
     >
@@ -608,7 +615,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           </div>
 
           <div style={{ position: "absolute", left: PAD, top: L.keyY + KEY + 22, width: L.W - PAD * 2, fontFamily: T.font, fontSize: 15, color: T.inkMuted, letterSpacing: 0.2 }}>
-            What the agent touched <span style={{ opacity: 0.7 }}>· click a block to trace its steps</span>
+            What the agent touched {!embedded && <span style={{ opacity: 0.7 }}>· click a block to trace its steps</span>}
           </div>
           {/* resource keycaps on the ground */}
           {catStats.map((c, k) => {
@@ -658,6 +665,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       </div>
 
       {/* overlay controls */}
+      {!embedded && (
       <div style={{ position: "absolute", left: 14, bottom: 12, display: "flex", gap: 12, fontSize: 11, color: T.inkMuted, fontFamily: T.font, pointerEvents: "none" }}>
         {Object.entries(STATUS).map(([k, s]) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
@@ -666,6 +674,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           </span>
         ))}
       </div>
+      )}
+      {!embedded && (
       <div style={{ position: "absolute", right: 12, bottom: 10, display: "flex", gap: 6 }}>
         {[
           ["−", () => setZoom((z) => Math.max(0.35, z / 1.25))],
@@ -682,7 +692,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           </button>
         ))}
       </div>
-      {steps.length === 0 && (
+      )}
+      {steps.length === 0 && !embedded && (
         <div style={{ position: "absolute", top: 18, left: 0, right: 0, textAlign: "center", fontSize: 13, color: T.inkMuted, pointerEvents: "none", fontFamily: T.font }}>
           Waiting for a session to trace — ask Claude Code to do something, or run the toy agent.
         </div>

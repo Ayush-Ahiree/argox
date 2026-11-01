@@ -217,16 +217,17 @@ async def post_tool_use(payload: dict, project: dict = Depends(require_api_key_p
     project_id = str(project["id"])
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {}) or {}
-    tool_output = payload.get("tool_output", "")
+    # `tool_response` is what Claude Code actually sends (see hook_server.py)
+    tool_output = payload.get("tool_response", payload.get("tool_output", ""))
     session_id = payload.get("session_id")
 
     mapped_tool = TOOL_NAME_MAP.get(tool_name, tool_name.lower())
     target = _extract_target(tool_name, tool_input)
     output_text = _stringify_output(tool_output)
 
-    # Same as hook_server.py's post-hook: Claude Code's real PostToolUse
-    # payload for Read comes back empty even on success, so read the file
-    # directly (this process has the same filesystem access the local
+    # Same as hook_server.py's post-hook: Read's tool_response carries no
+    # content when the file is unchanged since the agent last read it, so
+    # fall back to reading the file directly (this process has the same filesystem access the local
     # backend does -- true when self-hosted; for the hosted service this
     # only works if the agent's project happens to be on the same machine,
     # which won't generally be true once this runs on Fly.io. Left as-is

@@ -104,13 +104,7 @@ async def rotate_project_key(project_id: str, user_id: str, api_key_hash: str, a
 
 # ---------------------------------------------------------------- policies ---
 
-_DEFAULT_DENY_PATH_PATTERNS = ["admin/**", ".env*", "secrets/**"]
-_DEFAULT_RULE_TOGGLES = {
-    "dangerous_shell_detection": True,
-    "secret_exfil_blocking": True,
-    "pii_internal_boundary_confirm": True,
-    "baseline_external_flagging": True,
-}
+from policy import _DEFAULT_DENY_PATH_PATTERNS, _DEFAULT_RULE_TOGGLES  # one source of truth with the local backend
 
 
 async def get_policies(project_id: str) -> dict:
@@ -124,7 +118,13 @@ async def get_policies(project_id: str) -> dict:
         return {"deny_path_patterns": list(_DEFAULT_DENY_PATH_PATTERNS), "rule_toggles": dict(_DEFAULT_RULE_TOGGLES)}
     return {
         "deny_path_patterns": json.loads(row["deny_path_patterns"]) if isinstance(row["deny_path_patterns"], str) else row["deny_path_patterns"],
-        "rule_toggles": json.loads(row["rule_toggles"]) if isinstance(row["rule_toggles"], str) else row["rule_toggles"],
+        # merged over the defaults so a toggle added after this project's
+        # row was created (e.g. credential_file_protection) still shows up
+        # in the Policy tab and can be switched off
+        "rule_toggles": {
+            **_DEFAULT_RULE_TOGGLES,
+            **(json.loads(row["rule_toggles"]) if isinstance(row["rule_toggles"], str) else row["rule_toggles"]),
+        },
     }
 
 

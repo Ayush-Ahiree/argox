@@ -295,11 +295,11 @@ add to that project's `.claude/settings.json` (see this repo's own
 {
   "hooks": {
     "PreToolUse": [
-      { "matcher": "Read|Edit|Write|Bash",
-        "hooks": [{ "type": "http", "url": "http://localhost:8090/hooks/pre-tool-use", "timeout": 10 }] }
+      { "matcher": "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep",
+        "hooks": [{ "type": "http", "url": "http://localhost:8090/hooks/pre-tool-use", "timeout": 120 }] }
     ],
     "PostToolUse": [
-      { "matcher": "Read",
+      { "matcher": "Read|WebFetch|Bash|Grep|mcp__.*",
         "hooks": [{ "type": "http", "url": "http://localhost:8090/hooks/post-tool-use", "timeout": 10 }] }
     ]
   }

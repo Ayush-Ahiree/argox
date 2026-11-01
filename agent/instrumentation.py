@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, NonRecordingSpan, set_span_in_context, SpanKind
 
-from policy import classify_content, evaluate_call, Decision, PolicyResult, Tag
+from policy import classify_content, evaluate_call, script_network_reach, Decision, PolicyResult, Tag
 
 tracer = trace.get_tracer("argox")
 
@@ -34,6 +34,9 @@ class TaintContext:
         self.active_tags = set()  # tags currently "carried" by the agent's working memory
         self.history = []
         self.root_span_context = None  # lazily created -- see _session_parent_context
+        # {basename: reaches_external} for files this session wrote that
+        # contain network code, so running one later counts as network use
+        self.network_scripts = {}
 
     def absorb(self, tags: set):
         self.active_tags |= tags
@@ -240,7 +243,19 @@ def precheck(
         policy_result = evaluate_call(
             tool_name, target, params, ctx.active_tags,
             deny_path_patterns=deny_path_patterns, rule_toggles=rule_toggles,
+            network_scripts=ctx.network_scripts,
         )
+
+    # Remember scripts with network code as the agent writes them (Write's
+    # `content`, Edit's `new_string`, NotebookEdit's `new_source`): the
+    # hosted backend can't read the user's disk, but every write passes
+    # through here with its content.
+    if tool_name == "write_file" and policy_result.decision != Decision.BLOCK and isinstance(params, dict):
+        written = "\n".join(str(params.get(k) or "") for k in ("content", "new_string", "new_source"))
+        reach = script_network_reach(written)
+        if reach is not None:
+            name = str(target).replace("\\", "/").rsplit("/", 1)[-1]
+            ctx.network_scripts[name] = ctx.network_scripts.get(name, False) or reach
 
     with tracer.start_as_current_span(f"tool.{tool_name}", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)

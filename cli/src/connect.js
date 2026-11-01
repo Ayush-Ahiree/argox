@@ -10,8 +10,8 @@ const fs = require("fs");
 const path = require("path");
 
 const HOOK_CONFIG = {
-  PreToolUse: { matcher: "Read|Edit|Write|Bash|WebFetch", timeout: 120 },
-  PostToolUse: { matcher: "Read|WebFetch", timeout: 10 },
+  PreToolUse: { matcher: "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep", timeout: 120 },
+  PostToolUse: { matcher: "Read|WebFetch|Bash|Grep|mcp__.*", timeout: 10 },
 };
 
 function loadSettings(settingsPath) {
@@ -52,7 +52,15 @@ function connect(projectDir, { apiBase, apiKey }) {
     const url = `${apiBase}/hooks/${event === "PreToolUse" ? "pre" : "post"}-tool-use`;
     const existing = settings.hooks[event] || (settings.hooks[event] = []);
     if (hookAlreadyWired(existing, url)) {
-      messages.push(`[skip]  ${event} already wired to ${url}`);
+      // an older connect wrote a narrower matcher (it used to miss
+      // Bash/Grep/MCP output) -- bring it up to date in place
+      const stale = existing.filter((b) => (b.hooks || []).some((h) => h.url === url) && b.matcher !== cfg.matcher);
+      for (const block of stale) {
+        block.matcher = cfg.matcher;
+        messages.push(`[update] ${event} matcher -> ${cfg.matcher}`);
+        changed = true;
+      }
+      if (!stale.length) messages.push(`[skip]  ${event} already wired to ${url}`);
       continue;
     }
     existing.push({

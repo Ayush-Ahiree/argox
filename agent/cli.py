@@ -47,12 +47,12 @@ SERVICES = {
 
 HOOK_CONFIG = {
     "PreToolUse": {
-        "matcher": "Read|Edit|Write|Bash|WebFetch",
+        "matcher": "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep",
         "url": f"{HOOK_BASE_URL}/hooks/pre-tool-use",
         "timeout": 120,
     },
     "PostToolUse": {
-        "matcher": "Read|WebFetch",
+        "matcher": "Read|WebFetch|Bash|Grep|mcp__.*",
         "url": f"{HOOK_BASE_URL}/hooks/post-tool-use",
         "timeout": 10,
     },
@@ -209,7 +209,15 @@ def cmd_connect(args):
     for event, cfg in HOOK_CONFIG.items():
         existing = settings["hooks"].setdefault(event, [])
         if _hook_already_wired(existing, cfg["url"]):
-            print(f"[skip]  {event} already wired to {cfg['url']}")
+            # an older connect wrote a narrower matcher (it used to miss
+            # Bash/Grep/MCP output) -- bring it up to date in place
+            stale = [b for b in existing if any(h.get("url") == cfg["url"] for h in b.get("hooks", [])) and b.get("matcher") != cfg["matcher"]]
+            for block in stale:
+                block["matcher"] = cfg["matcher"]
+                print(f"[update] {event} matcher -> {cfg['matcher']}")
+                changed = True
+            if not stale:
+                print(f"[skip]  {event} already wired to {cfg['url']}")
             continue
         existing.append({
             "matcher": cfg["matcher"],
