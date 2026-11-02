@@ -1,6 +1,6 @@
 {
   "name": "@amisecured/argox",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Connect a Claude Code project to your hosted Argox dashboard.",
   "bin": {
     "argox": "bin/argox.js"
