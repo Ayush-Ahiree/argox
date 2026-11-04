@@ -62,6 +62,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.get("/health")
+def health():
+    # Unauthenticated liveness probe -- pinged by .github/workflows/keep-alive.yml
+    # so Render's free tier doesn't spin the service down after 15 min idle.
+    return {"status": "ok"}
+
+
 _LOOP = None
 _connected: dict[str, set[WebSocket]] = {}
 
