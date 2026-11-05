@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import Argox from "./Argox";
 import EventFeed from "./EventFeed";
 import PolicyEditor from "./PolicyEditor.jsx";
@@ -90,12 +90,7 @@ export default function App() {
     <div style={{ height: "100vh", width: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: T.page, color: T.ink, fontFamily: T.font }}>
       <div style={{ display: "flex", alignItems: "center", gap: 20, height: 52, padding: "0 20px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
         <ArgoxLogo height={26} />
-        <nav style={{ display: "flex", gap: 2, padding: 3, borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.page }}>
-          <TabButton label="Connect" active={view === "connect"} onClick={() => setView("connect")} />
-          <TabButton label="Feed" active={view === "feed"} onClick={() => setView("feed")} />
-          <TabButton label="Graph" active={view === "graph"} onClick={() => setView("graph")} />
-          <TabButton label="Policy" active={view === "policy"} onClick={() => setView("policy")} />
-        </nav>
+        <TabNav view={view} onChange={setView} />
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
           <ConnectionStatus />
           <ThemeToggle />
@@ -106,7 +101,8 @@ export default function App() {
           )}
         </div>
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      {/* keyed on view so each tab switch remounts the wrapper and replays the enter animation */}
+      <div key={view} className="ax-view-enter" style={{ flex: 1, minHeight: 0 }}>
         {view === "connect" && <ConnectPanel project={project} apiKey={freshApiKey} onRegenerateKey={regenerateKey} />}
         {view === "feed" && <EventFeed wsUrl={wsUrl} authSession={session} />}
         {view === "graph" && <Argox wsUrl={wsUrl} />}
@@ -202,13 +198,70 @@ function Centered({ children }) {
   );
 }
 
-function TabButton({ label, active, onClick }) {
+const TABS = [
+  { id: "connect", label: "Connect" },
+  { id: "feed", label: "Feed" },
+  { id: "graph", label: "Graph" },
+  { id: "policy", label: "Policy" },
+];
+
+// Segmented tab bar with a single highlight that slides to the active tab
+// (measured from the real button, so it follows font loading / label width).
+function TabNav({ view, onChange }) {
+  const refs = useRef({});
+  const [box, setBox] = useState(null);
+
+  useLayoutEffect(() => {
+    // `live` guards the async fonts.ready callback: without it, the previous
+    // tab's effect re-measures after this one and pulls the highlight back.
+    let live = true;
+    const measure = () => {
+      const el = refs.current[view];
+      if (live && el) setBox({ left: el.offsetLeft, width: el.offsetWidth });
+    };
+    measure();
+    document.fonts?.ready.then(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      live = false;
+      window.removeEventListener("resize", measure);
+    };
+  }, [view]);
+
+  return (
+    <nav style={{ position: "relative", display: "flex", gap: 2, padding: 3, borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.page }}>
+      {box && (
+        <span
+          className="ax-tab-indicator"
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 3,
+            bottom: 3,
+            left: 0,
+            width: box.width,
+            transform: `translateX(${box.left}px)`,
+            borderRadius: T.radiusSm,
+            background: T.surface,
+            boxShadow: `inset 0 0 0 1px ${T.border}, ${T.shadow}`,
+          }}
+        />
+      )}
+      {TABS.map((t) => (
+        <TabButton key={t.id} label={t.label} active={view === t.id} onClick={() => onChange(t.id)} buttonRef={(el) => (refs.current[t.id] = el)} />
+      ))}
+    </nav>
+  );
+}
+
+function TabButton({ label, active, onClick, buttonRef }) {
   return (
     <button
+      ref={buttonRef}
       onClick={onClick}
       style={{
-        background: active ? T.surface : "transparent",
-        boxShadow: active ? `inset 0 0 0 1px ${T.border}, ${T.shadow}` : "none",
+        position: "relative",
+        background: "transparent",
         color: active ? T.ink : T.inkMuted,
         border: "none",
         borderRadius: T.radiusSm,
@@ -217,7 +270,7 @@ function TabButton({ label, active, onClick }) {
         fontSize: 12.5,
         fontWeight: 600,
         cursor: "pointer",
-        transition: "background 120ms ease, color 120ms ease",
+        transition: "color 160ms ease",
       }}
     >
       {label}

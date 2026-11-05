@@ -140,7 +140,7 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765", authSession =
 
   return (
     <div className="ax-scroll" style={{ height: "100%", width: "100%", overflowY: "auto", background: T.page, color: T.ink, fontFamily: T.font }}>
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "28px 32px 48px" }}>
+      <div style={{ width: "100%", boxSizing: "border-box", padding: "24px clamp(16px, 2vw, 32px) 48px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, marginBottom: 18 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 600, letterSpacing: -0.4 }}>Event Feed</h1>
@@ -201,6 +201,7 @@ export default function EventFeed({ wsUrl = "ws://localhost:8765", authSession =
             return (
               <SessionCard
                 key={session.sessionId}
+                index={i}
                 session={session}
                 expanded={effectiveExpanded}
                 onToggle={() => toggleSession(session.sessionId, effectiveExpanded)}
@@ -294,6 +295,7 @@ function Segmented({ value, onChange, counts }) {
         return (
           <button
             key={f.value}
+            className="ax-seg-btn"
             onClick={() => onChange(f.value)}
             style={{
               display: "inline-flex",
@@ -506,7 +508,7 @@ function Pill({ status, children }) {
   );
 }
 
-function SessionCard({ session, expanded, onToggle, expandedEvents, onToggleEvent, pending, onResolve }) {
+function SessionCard({ index = 0, session, expanded, onToggle, expandedEvents, onToggleEvent, pending, onResolve }) {
   const ordered = useMemo(() => [...session.events].sort((a, b) => (a.ts || 0) - (b.ts || 0)), [session.events]);
   const open = useMemo(() => unresolvedPending(session.events), [session.events]);
   const agent = sourceMeta(session.source).label;
@@ -514,7 +516,9 @@ function SessionCard({ session, expanded, onToggle, expandedEvents, onToggleEven
 
   return (
     <div
+      className="ax-rise"
       style={{
+        animationDelay: `${Math.min(index, 8) * 40}ms`,
         borderRadius: T.radius,
         border: `1px solid ${needsYou ? tint(T.warning, 55) : T.border}`,
         boxShadow: needsYou ? `0 0 0 3px ${tint(T.warning, 12)}` : T.shadow,
@@ -556,7 +560,7 @@ function SessionCard({ session, expanded, onToggle, expandedEvents, onToggleEven
       </div>
 
       {expanded && (
-        <div style={{ display: "flex", borderTop: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+        <div className="ax-expand" style={{ display: "flex", borderTop: `1px solid ${T.border}`, flexWrap: "wrap" }}>
           <div style={{ flex: "1 1 520px", minWidth: 0, padding: "14px 16px 14px 8px" }}>
             {ordered.map((event, i) => {
               const pendingItem = open.has(event)
@@ -683,7 +687,11 @@ function TimelineRow({ event, last, expanded, onToggle, unresolved, pendingItem,
             </div>
             <Pill status={status}>{status.label}</Pill>
           </div>
-          {expanded && <EventDetails event={event} />}
+          {expanded && (
+            <div className="ax-expand">
+              <EventDetails event={event} />
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -775,7 +783,7 @@ function SessionSidebar({ session }) {
   }, [session.events]);
 
   return (
-    <div style={{ flex: "0 0 300px", minWidth: 0, borderLeft: `1px solid ${T.border}`, background: T.sunken, padding: 16, boxSizing: "border-box" }}>
+    <div style={{ flex: "0 0 clamp(300px, 24%, 420px)", minWidth: 0, borderLeft: `1px solid ${T.border}`, background: T.sunken, padding: 16, boxSizing: "border-box" }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         {stats.map((s) => (
           <div key={s.label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "10px 12px" }}>
