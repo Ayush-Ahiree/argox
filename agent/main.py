@@ -52,12 +52,17 @@ from policy import RULE_TOGGLE_LABELS, Decision
 
 CONFIRM_TIMEOUT_SECONDS = 110.0
 PORT = int(os.environ.get("PORT", "8080"))
-FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")  # tighten to the real Vercel/domain origin once deployed
+# Comma-separated list of allowed frontend origins, e.g. production plus a
+# stable Vercel branch-preview URL:
+#   https://argox-six.vercel.app,https://argox-git-stage-xyz.vercel.app
+# "*" (the default) allows any origin -- tighten it once deployed.
+FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "*")
+ALLOWED_ORIGINS = [o.strip().rstrip("/") for o in FRONTEND_ORIGIN.split(",") if o.strip()] or ["*"]
 
 app = FastAPI(title="Argox (hosted)")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_ORIGIN] if FRONTEND_ORIGIN != "*" else ["*"],
+    allow_origins=["*"] if "*" in ALLOWED_ORIGINS else ALLOWED_ORIGINS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
