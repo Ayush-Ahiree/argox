@@ -96,12 +96,31 @@ function worse(a, b) {
   return SEV_RANK[a] >= SEV_RANK[b] ? a : b;
 }
 
-function Box({ w, d, h, colors, topStyle, style, className, children, ...rest }) {
+// An extruded block: top face + the two viewer-facing walls (front, left).
+//
+// `radius` rounds the block's vertical edges. A rounded top face alone
+// isn't enough -- flat walls would still run to the square corners and
+// poke out past the curve. So with a radius the walls stop `radius` short
+// of each corner, and the corners are filled by a stack of thin rounded
+// slices (CSS can't bend a plane), shaded from side colour to front colour
+// so the curve reads as turning from one wall into the other.
+const SLICE_STEP = 1.5; // px between slices; smaller = smoother corner, more DOM
+
+function Box({ w, d, h, colors, radius = 0, topStyle, style, className, children, ...rest }) {
+  const r = Math.min(radius, w / 2, d / 2);
+  const slices = r > 0 ? Math.max(1, Math.ceil(h / SLICE_STEP)) : 0;
+  const cornerFill = `linear-gradient(to bottom right, ${colors.side} 0%, ${colors.side} 35%, ${colors.front} 65%, ${colors.front} 100%)`;
   return (
-    <div className={className} style={{ position: "absolute", width: w, height: d, transformStyle: "preserve-3d", ...style }} {...rest}>
-      <div style={{ position: "absolute", left: 0, top: d, width: w, height: h, background: colors.front, transformOrigin: "top", transform: "rotateX(90deg)" }} />
-      <div style={{ position: "absolute", left: 0, top: 0, width: h, height: d, background: colors.side, transformOrigin: "left", transform: "rotateY(-90deg)" }} />
-      <div style={{ position: "absolute", inset: 0, transform: `translateZ(${h}px)`, background: colors.top, ...topStyle }}>{children}</div>
+    <div className={className} style={{ position: "absolute", width: w, height: d, transformStyle: "preserve-3d", borderRadius: r, ...style }} {...rest}>
+      {Array.from({ length: slices }, (_, i) => (
+        <div
+          key={i}
+          style={{ position: "absolute", inset: 0.5, borderRadius: r, background: cornerFill, transform: `translateZ(${Math.min(h - 0.5, i * SLICE_STEP)}px)` }}
+        />
+      ))}
+      <div style={{ position: "absolute", left: r, top: d, width: w - 2 * r, height: h, background: colors.front, transformOrigin: "top", transform: "rotateX(90deg)" }} />
+      <div style={{ position: "absolute", left: 0, top: r, width: h, height: d - 2 * r, background: colors.side, transformOrigin: "left", transform: "rotateY(-90deg)" }} />
+      <div style={{ position: "absolute", inset: 0, transform: `translateZ(${h}px)`, background: colors.top, ...topStyle, ...(r > 0 ? { borderRadius: r } : null) }}>{children}</div>
     </div>
   );
 }
@@ -453,17 +472,17 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           })}
 
           {/* platform shadow + slab */}
-          <div style={{ position: "absolute", left: 10, top: 18, width: L.W, height: L.H, background: "rgba(23,20,14,0.10)", filter: "blur(18px)", borderRadius: 12 }} />
+          <div style={{ position: "absolute", left: 10, top: 18, width: L.W, height: L.H, background: "rgba(23,20,14,0.10)", filter: "blur(18px)", borderRadius: 16 }} />
           <Box
             w={L.W}
             d={L.H}
             h={PLAT_H}
             colors={PLATFORM}
+            radius={8}
             topStyle={{
               backgroundImage: `radial-gradient(${tint(T.ink, 15)} 1.2px, transparent 1.3px)`,
               backgroundSize: "18px 18px",
               backgroundPosition: "9px 9px",
-              borderRadius: 2,
               boxShadow: `inset 0 0 0 1px ${tint(T.ink, 5)}`,
             }}
           />
@@ -507,15 +526,16 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
             })}
 
             {/* agent block */}
-            <div style={{ position: "absolute", left: PAD + 10, top: PAD + 16, width: CW, height: AGENT_D, background: "rgba(0,0,0,0.22)", filter: "blur(14px)" }} />
+            <div style={{ position: "absolute", left: PAD + 10, top: PAD + 16, width: CW, height: AGENT_D, background: "rgba(0,0,0,0.22)", filter: "blur(14px)", borderRadius: 12 }} />
             <Box
               className="iso-bob"
               w={CW}
               d={AGENT_D}
               h={AGENT_H}
               colors={DARK}
+              radius={8}
               style={{ left: PAD, top: PAD }}
-              topStyle={{ borderRadius: 3, padding: 14, boxSizing: "border-box", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
+              topStyle={{ padding: 14, boxSizing: "border-box", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ width: 42, height: 42, borderRadius: 10, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -563,10 +583,10 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                       d={CD}
                       h={CARD_H}
                       colors={CARD}
+                      radius={6}
                       className={(alarm || focused) && !dimmed ? "iso-glow" : undefined}
                       style={{ left: 0, top: 0, pointerEvents: "auto", cursor: "pointer", "--glow": `${status.color}${focused ? "88" : "55"}` }}
                       topStyle={{
-                        borderRadius: 4,
                         border: `${focused ? 2 : 1.5}px solid ${selected ? T.ink : alarm || focused ? status.color : tint(T.ink, 8)}`,
                         boxSizing: "border-box",
                         display: "flex",
@@ -634,18 +654,22 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                     d={KEY}
                     h={KEY_H}
                     colors={DARK}
+                    radius={10}
                     style={{ pointerEvents: "auto", cursor: "pointer" }}
                     onPointerEnter={() => setHoverCatId(c.id)}
                     onPointerLeave={() => setHoverCatId(null)}
                     onClick={() => !justDraggedRef.current && onFocusCat(focusedCap ? null : c.id)}
                     topStyle={{
-                      borderRadius: 10,
                       padding: 12,
                       boxSizing: "border-box",
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
-                      boxShadow: lit ? `0 0 0 ${focusedCap ? 3 : 2}px ${capColor}, 0 0 28px ${tint(capColor, 67)}` : "inset 0 1px 0 rgba(255,255,255,0.08)",
+                      // ring drawn INSIDE the cap: an outer spread ring makes the top face
+                      // look larger than the walls below it (an overhanging lip)
+                      boxShadow: lit
+                        ? `inset 0 0 0 ${focusedCap ? 3 : 2}px ${capColor}, 0 0 28px ${tint(capColor, 67)}`
+                        : "inset 0 1px 0 rgba(255,255,255,0.08)",
                       transition: "box-shadow 200ms",
                     }}
                   >
