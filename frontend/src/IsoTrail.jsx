@@ -74,21 +74,19 @@ export const CATEGORIES = [
 const FLOW = 80; // length of the glowing pulse travelling through a pipe
 
 const CSS = `
-@keyframes iso-drop { 0% { transform: translateZ(110px); opacity: 0; } 55% { opacity: 1; } 75% { transform: translateZ(-5px); } 100% { transform: translateZ(0); } }
-@keyframes iso-bob { 0%, 100% { transform: translateZ(1px); } 50% { transform: translateZ(8px); } }
+@keyframes iso-drop { 0% { transform: translateZ(14px); opacity: 0; } 100% { transform: translateZ(0); opacity: 1; } }
 @keyframes iso-ripple { 0% { transform: scale(0.7); opacity: 0.55; } 100% { transform: scale(1.9); opacity: 0; } }
 @keyframes iso-glow { 0%, 100% { box-shadow: 0 0 0 0 var(--glow); } 50% { box-shadow: 0 0 26px 6px var(--glow); } }
 @keyframes iso-flow-x { 0% { background-position: var(--from) 0; opacity: 1; } 80% { opacity: 1; } 100% { background-position: var(--to) 0; opacity: var(--end-opacity); } }
 @keyframes iso-flow-y { 0% { background-position: 0 var(--from); opacity: 1; } 80% { opacity: 1; } 100% { background-position: 0 var(--to); opacity: var(--end-opacity); } }
 @keyframes iso-led { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.iso-drop { animation: iso-drop 700ms cubic-bezier(.2,.8,.25,1) backwards; }
-.iso-bob { animation: iso-bob 4.5s ease-in-out infinite; }
+.iso-drop { animation: iso-drop 280ms ease-out backwards; }
 .iso-ripple { animation: iso-ripple 1.8s ease-out infinite; }
 .iso-glow { animation: iso-glow 2s ease-in-out infinite; }
 .iso-led { animation: iso-led 1.6s ease-in-out infinite; }
 .iso-card-lift { transition: transform 220ms cubic-bezier(.2,.8,.25,1); }
 @media (prefers-reduced-motion: reduce) {
-  .iso-drop, .iso-bob, .iso-ripple, .iso-glow, .iso-led, .iso-flow { animation: none !important; }
+  .iso-drop, .iso-ripple, .iso-glow, .iso-led, .iso-flow { animation: none !important; }
 }
 `;
 
@@ -104,7 +102,7 @@ function worse(a, b) {
 // of each corner, and the corners are filled by a stack of thin rounded
 // slices (CSS can't bend a plane), shaded from side colour to front colour
 // so the curve reads as turning from one wall into the other.
-const SLICE_STEP = 1.5; // px between slices; smaller = smoother corner, more DOM
+const SLICE_STEP = 2.5; // px between slices; smaller = smoother corner, more DOM
 
 function Box({ w, d, h, colors, radius = 0, topStyle, style, className, children, ...rest }) {
   const r = Math.min(radius, w / 2, d / 2);
@@ -191,10 +189,10 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
 
   return (
     <>
-      <div style={{ position: "absolute", left: left + 3, top: top + 6, width: w, height: d, background: "rgba(23,20,14,0.16)", filter: "blur(5px)", borderRadius: radius }} />
+      <div style={{ position: "absolute", left: left + 3, top: top + 6, width: w, height: d, background: "rgba(23,20,14,0.12)", boxShadow: "0 0 6px 1px rgba(23,20,14,0.12)", borderRadius: radius }} />
       {lit && (
         // light the pipe throws onto the deck underneath it
-        <div style={{ position: "absolute", left: left - 8, top: top - 8, width: w + 16, height: d + 16, borderRadius: radius + 8, background: color, opacity: intense ? 0.32 : 0.16, filter: "blur(10px)" }} />
+        <div style={{ position: "absolute", left: left - 8, top: top - 8, width: w + 16, height: d + 16, borderRadius: radius + 8, boxShadow: `0 0 12px 4px ${color}`, opacity: intense ? 0.3 : 0.15 }} />
       )}
       <Box
         w={w}
@@ -219,7 +217,7 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
           }}
         >
           {/* steady inner light, so a lit pipe reads as "on" between pulses */}
-          {lit && <div style={{ position: "absolute", ...coreLine, borderRadius: 2, background: color, opacity: 0.55, filter: "blur(1px)" }} />}
+          {lit && <div style={{ position: "absolute", ...coreLine, borderRadius: 2, background: color, opacity: 0.45 }} />}
           {lit && <div className="iso-flow" style={{ position: "absolute", inset: 0, ...flow("100%") }} />}
           {/* glass highlight on top of the glow */}
           <div
@@ -232,19 +230,6 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
           />
           {dim && <div style={{ position: "absolute", inset: 0, background: "rgba(250,249,247,0.55)" }} />}
         </div>
-        {/* bloom: the same pulse, blurred and spilling past the tube walls */}
-        {lit && (
-          <div
-            className="iso-flow"
-            style={{
-              position: "absolute",
-              inset: horizontal ? "-7px 0" : "0 -7px",
-              filter: "blur(6px)",
-              opacity: intense ? 1 : 0.85,
-              ...flow("100%"),
-            }}
-          />
-        )}
       </Box>
       {collar(...at(endA), "a")}
       {collar(...at(endB), "b")}
@@ -472,7 +457,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           })}
 
           {/* platform shadow + slab */}
-          <div style={{ position: "absolute", left: 10, top: 18, width: L.W, height: L.H, background: "rgba(23,20,14,0.10)", filter: "blur(18px)", borderRadius: 16 }} />
+          <div style={{ position: "absolute", left: 10, top: 18, width: L.W, height: L.H, background: "rgba(23,20,14,0.08)", boxShadow: "0 0 24px 6px rgba(23,20,14,0.08)", borderRadius: 16 }} />
           <Box
             w={L.W}
             d={L.H}
@@ -526,9 +511,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
             })}
 
             {/* agent block */}
-            <div style={{ position: "absolute", left: PAD + 10, top: PAD + 16, width: CW, height: AGENT_D, background: "rgba(0,0,0,0.22)", filter: "blur(14px)", borderRadius: 12 }} />
+            <div style={{ position: "absolute", left: PAD + 10, top: PAD + 16, width: CW, height: AGENT_D, background: "rgba(0,0,0,0.16)", boxShadow: "0 0 18px 4px rgba(0,0,0,0.16)", borderRadius: 12 }} />
             <Box
-              className="iso-bob"
               w={CW}
               d={AGENT_D}
               h={AGENT_H}
@@ -576,7 +560,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                       style={{ position: "absolute", inset: -6, borderRadius: 12, border: `2px solid ${status.color}`, pointerEvents: "none" }}
                     />
                   )}
-                  <div style={{ position: "absolute", left: 6, top: 10 + lift * 0.4, width: CW, height: CD, background: "rgba(23,20,14,0.14)", filter: `blur(${8 + lift * 0.4}px)`, borderRadius: 6, transition: "all 220ms" }} />
+                  <div style={{ position: "absolute", left: 6, top: 10 + lift * 0.4, width: CW, height: CD, background: "rgba(23,20,14,0.11)", boxShadow: `0 0 ${10 + lift * 0.5}px 2px rgba(23,20,14,0.11)`, borderRadius: 6, transition: "top 220ms" }} />
                   <div className="iso-card-lift" style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d", transform: `translateZ(${lift + 1}px)` }}>
                     <Box
                       w={CW}
@@ -646,8 +630,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
             const capColor = used ? color : T.inkMuted;
             return (
               <div key={c.id} style={{ position: "absolute", left: L.keyX(k), top: L.keyY, width: KEY, height: KEY, transformStyle: "preserve-3d" }}>
-                {lit && <div style={{ position: "absolute", inset: -14, borderRadius: 22, background: capColor, opacity: focusedCap ? 0.4 : 0.22, filter: "blur(16px)" }} />}
-                <div style={{ position: "absolute", left: 8, top: 12, width: KEY, height: KEY, background: "rgba(0,0,0,0.2)", filter: "blur(12px)", borderRadius: 10 }} />
+                {lit && <div style={{ position: "absolute", inset: -14, borderRadius: 22, boxShadow: `0 0 20px 8px ${capColor}`, opacity: focusedCap ? 0.35 : 0.2 }} />}
+                <div style={{ position: "absolute", left: 8, top: 12, width: KEY, height: KEY, background: "rgba(0,0,0,0.15)", boxShadow: "0 0 14px 3px rgba(0,0,0,0.15)", borderRadius: 10 }} />
                 <div className="iso-card-lift" style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d", transform: `translateZ(${lit ? 13 : 1}px)` }}>
                   <Box
                     w={KEY}
