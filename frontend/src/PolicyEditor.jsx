@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { T, IconAlert } from "./theme.jsx";
+import { T, tint, IconAlert } from "./theme.jsx";
 import { authHeaders, policiesUrl } from "./lib/api.js";
 
 // A few ready-to-use patterns so "what do I type here" has a concrete
@@ -119,7 +119,7 @@ export default function PolicyEditor({ project = null, session = null }) {
         </div>
 
         {status === "error" && (
-          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px", marginBottom: 16, background: `${T.critical}12`, border: `1px solid ${T.critical}40`, borderRadius: 8, fontSize: 13 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 12px", marginBottom: 16, background: `${T.critical}12`, border: `1px solid ${T.critical}40`, borderRadius: 6, fontSize: 13 }}>
             <IconAlert size={14} color={T.critical} />
             Couldn't reach the policy server ({policiesUrl(project)}). Is the backend running?
           </div>
@@ -136,7 +136,7 @@ export default function PolicyEditor({ project = null, session = null }) {
             marginBottom: 24,
             background: T.surfaceRaised,
             border: `1px solid ${T.border}`,
-            borderRadius: 8,
+            borderRadius: 6,
             fontSize: 13,
             lineHeight: 1.5,
             color: T.inkSecondary,
@@ -183,7 +183,7 @@ export default function PolicyEditor({ project = null, session = null }) {
                 disabled={status === "saving" || (patterns && patterns.includes(pattern))}
                 style={{
                   padding: "5px 10px",
-                  borderRadius: 999,
+                  borderRadius: 4,
                   border: `1px solid ${T.borderStrong}`,
                   background: "transparent",
                   color: T.inkSecondary,
@@ -207,7 +207,7 @@ export default function PolicyEditor({ project = null, session = null }) {
               style={{
                 flex: 1,
                 padding: "9px 12px",
-                borderRadius: 8,
+                borderRadius: 6,
                 border: `1px solid ${T.borderStrong}`,
                 background: T.surface,
                 color: T.ink,
@@ -221,7 +221,7 @@ export default function PolicyEditor({ project = null, session = null }) {
               disabled={!newPattern.trim() || status === "saving"}
               style={{
                 padding: "9px 18px",
-                borderRadius: 8,
+                borderRadius: 6,
                 border: "none",
                 background: T.accent,
                 color: T.onAccent,
@@ -242,7 +242,7 @@ export default function PolicyEditor({ project = null, session = null }) {
                 padding: "7px 10px",
                 marginBottom: 12,
                 borderRadius: 6,
-                background: feedback.kind === "success" ? `${T.accent}14` : `${T.inkMuted}14`,
+                background: feedback.kind === "success" ? tint(T.accent, 8) : tint(T.inkMuted, 8),
                 color: feedback.kind === "success" ? T.accent : T.inkSecondary,
               }}
             >
@@ -266,7 +266,7 @@ export default function PolicyEditor({ project = null, session = null }) {
                     alignItems: "center",
                     justifyContent: "space-between",
                     padding: "10px 14px",
-                    borderRadius: 8,
+                    borderRadius: 6,
                     background: T.surface,
                     border: `1px solid ${T.border}`,
                   }}
@@ -298,7 +298,7 @@ export default function PolicyEditor({ project = null, session = null }) {
 
 const cardStyle = {
   border: `1px solid ${T.border}`,
-  borderRadius: 10,
+  borderRadius: 6,
   padding: "18px 18px 20px",
   marginBottom: 20,
 };
@@ -321,7 +321,7 @@ function RuleToggleRow({ label, on, onToggle, disabled }) {
         justifyContent: "space-between",
         gap: 12,
         padding: "10px 14px",
-        borderRadius: 8,
+        borderRadius: 6,
         background: T.surface,
         border: `1px solid ${T.border}`,
         cursor: disabled ? "default" : "pointer",

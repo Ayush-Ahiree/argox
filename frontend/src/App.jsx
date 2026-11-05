@@ -5,7 +5,7 @@ import PolicyEditor from "./PolicyEditor.jsx";
 import ConnectPanel from "./ConnectPanel.jsx";
 import LoginPage from "./LoginPage.jsx";
 import Home from "./Home.jsx";
-import { T, ArgoxLogo } from "./theme.jsx";
+import { T, ArgoxLogo, IconSun, IconMoon, applyTheme } from "./theme.jsx";
 import { API_BASE, HOSTED, WS_BASE } from "./lib/config.js";
 import { supabase } from "./lib/supabase.js";
 
@@ -87,22 +87,24 @@ export default function App() {
       : "ws://localhost:8765";
 
   return (
-    <div style={{ height: "100vh", width: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: T.page, fontFamily: T.font }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <ArgoxLogo />
-        </div>
-        <div style={{ display: "flex", gap: 4, background: T.surfaceRaised, borderRadius: 999, padding: 3 }}>
+    <div style={{ height: "100vh", width: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: T.page, color: T.ink, fontFamily: T.font }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 20, height: 52, padding: "0 20px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <ArgoxLogo height={26} />
+        <nav style={{ display: "flex", gap: 2, padding: 3, borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.page }}>
           <TabButton label="Connect" active={view === "connect"} onClick={() => setView("connect")} />
           <TabButton label="Feed" active={view === "feed"} onClick={() => setView("feed")} />
           <TabButton label="Graph" active={view === "graph"} onClick={() => setView("graph")} />
           <TabButton label="Policy" active={view === "policy"} onClick={() => setView("policy")} />
+        </nav>
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+          <ConnectionStatus />
+          <ThemeToggle />
+          {HOSTED && (
+            <button onClick={() => supabase.auth.signOut()} style={signOutStyle}>
+              Sign out
+            </button>
+          )}
         </div>
-        {HOSTED && (
-          <button onClick={() => supabase.auth.signOut()} style={signOutStyle}>
-            Sign out
-          </button>
-        )}
       </div>
       <div style={{ flex: 1, minHeight: 0 }}>
         {view === "connect" && <ConnectPanel project={project} apiKey={freshApiKey} onRegenerateKey={regenerateKey} />}
@@ -111,6 +113,58 @@ export default function App() {
         {view === "policy" && <PolicyEditor project={project} session={session} />}
       </div>
     </div>
+  );
+}
+
+// Fed by useEventStream's "argox:ws" window event; null = no live view
+// mounted (Connect/Policy tabs), so show nothing rather than a false
+// "Disconnected".
+function ConnectionStatus() {
+  const [connected, setConnected] = useState(null);
+  useEffect(() => {
+    const on = (e) => setConnected(e.detail.connected);
+    window.addEventListener("argox:ws", on);
+    return () => window.removeEventListener("argox:ws", on);
+  }, []);
+  if (connected === null) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.inkMuted }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: connected ? T.good : T.inkMuted, boxShadow: connected ? `0 0 0 3px color-mix(in srgb, ${T.good} 20%, transparent)` : "none" }} />
+      {connected ? "Connected" : "Disconnected"}
+    </span>
+  );
+}
+
+function ThemeToggle() {
+  const [mode, setMode] = useState(() => document.documentElement.dataset.theme || "light");
+  const next = mode === "dark" ? "light" : "dark";
+  return (
+    <button
+      className="ax-btn"
+      onClick={() => {
+        applyTheme(next);
+        setMode(next);
+      }}
+      aria-label={`Switch to ${next} mode`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        height: 30,
+        padding: "0 10px",
+        borderRadius: T.radius,
+        border: `1px solid ${T.border}`,
+        background: T.surface,
+        color: T.ink,
+        fontFamily: T.font,
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      {mode === "dark" ? <IconSun size={13} color={T.ink} /> : <IconMoon size={13} color={T.ink} />}
+      {mode === "dark" ? "Light" : "Dark"}
+    </button>
   );
 }
 
@@ -153,12 +207,14 @@ function TabButton({ label, active, onClick }) {
     <button
       onClick={onClick}
       style={{
-        background: active ? T.page : "transparent",
+        background: active ? T.surface : "transparent",
+        boxShadow: active ? `inset 0 0 0 1px ${T.border}, ${T.shadow}` : "none",
         color: active ? T.ink : T.inkMuted,
         border: "none",
-        borderRadius: 999,
+        borderRadius: T.radiusSm,
         padding: "5px 14px",
-        fontSize: 12,
+        fontFamily: T.font,
+        fontSize: 12.5,
         fontWeight: 600,
         cursor: "pointer",
         transition: "background 120ms ease, color 120ms ease",
@@ -170,13 +226,13 @@ function TabButton({ label, active, onClick }) {
 }
 
 const signOutStyle = {
-  marginLeft: "auto",
   background: "transparent",
   border: "none",
   color: T.inkMuted,
+  fontFamily: T.font,
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
   textDecoration: "underline",
+  textUnderlineOffset: 3,
 };
-

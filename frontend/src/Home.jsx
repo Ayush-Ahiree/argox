@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { T, ArgoxLogo } from "./theme.jsx";
+import { LIGHT as T, ArgoxLogo } from "./theme.jsx";
 import IsoTrail from "./IsoTrail.jsx";
 import { buildTrail } from "./pathLayout.js";
 
@@ -82,7 +82,7 @@ export default function Home({ onSignIn, onGetStarted }) {
       <nav className="ax-nav">
         <div className="ax-wrap ax-nav-inner">
           <a href="/" className="ax-brand">
-            <ArgoxLogo />
+            <ArgoxLogo variant="light" />
           </a>
           <div className="ax-nav-links">
             <a href="#how">How it works</a>
@@ -218,7 +218,7 @@ export default function Home({ onSignIn, onGetStarted }) {
       <footer className="ax-footer">
         <div className="ax-wrap ax-footer-inner">
           <div className="ax-brand ax-brand-sm">
-            <ArgoxLogo />
+            <ArgoxLogo variant="light" />
           </div>
           <div className="ax-footer-links">
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>

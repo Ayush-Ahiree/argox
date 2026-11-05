@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { T, STATUS, TOOL_META, IconFile, IconTerminal, IconGlobe, IconLock, IconClaude, IconBot } from "./theme.jsx";
+import { T, tint, STATUS, TOOL_META, IconFile, IconTerminal, IconGlobe, IconLock, IconClaude, IconBot } from "./theme.jsx";
 
 /**
  * Isometric 3D path view for the Graph tab, built with plain CSS 3D
@@ -43,8 +43,8 @@ const RZ = -32;
 const SEV_RANK = { clean: 0, flagged: 1, warning: 2, critical: 3 };
 
 const DARK = { top: "#24221d", front: "#16140f", side: "#0d0c09" };
-const PLATFORM = { top: "#fcfbf8", front: "#e8e5dc", side: "#d9d5ca" };
-const CARD = { top: T.surface, front: "#ebe8e0", side: "#dedad0" };
+const PLATFORM = { top: "var(--ax-platform-top)", front: "var(--ax-platform-front)", side: "var(--ax-platform-side)" };
+const CARD = { top: T.surface, front: T.cardFront, side: T.cardSide };
 
 // Resource blocks. `match` takes a trail node (see pathLayout.buildTrail).
 const SENSITIVE_TAGS = ["secret", "pii", "internal_only"];
@@ -394,7 +394,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
         inset: 0,
         overflow: "hidden",
         cursor: embedded ? "default" : dragging ? "grabbing" : "grab",
-        background: `radial-gradient(ellipse at 50% 45%, ${T.surface} 0%, ${T.page} 55%, #f1eee7 100%)`,
+        background: `radial-gradient(ellipse at 50% 45%, ${T.surface} 0%, ${T.page} 55%, ${T.vignette} 100%)`,
         touchAction: embedded ? "auto" : "none",
         userSelect: "none",
       }}
@@ -460,11 +460,11 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
             h={PLAT_H}
             colors={PLATFORM}
             topStyle={{
-              backgroundImage: `radial-gradient(${T.ink}26 1.2px, transparent 1.3px)`,
+              backgroundImage: `radial-gradient(${tint(T.ink, 15)} 1.2px, transparent 1.3px)`,
               backgroundSize: "18px 18px",
               backgroundPosition: "9px 9px",
               borderRadius: 2,
-              boxShadow: `inset 0 0 0 1px ${T.ink}0d`,
+              boxShadow: `inset 0 0 0 1px ${tint(T.ink, 5)}`,
             }}
           />
 
@@ -567,12 +567,12 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                       style={{ left: 0, top: 0, pointerEvents: "auto", cursor: "pointer", "--glow": `${status.color}${focused ? "88" : "55"}` }}
                       topStyle={{
                         borderRadius: 4,
-                        border: `${focused ? 2 : 1.5}px solid ${selected ? T.ink : alarm || focused ? status.color : T.ink + "14"}`,
+                        border: `${focused ? 2 : 1.5}px solid ${selected ? T.ink : alarm || focused ? status.color : tint(T.ink, 8)}`,
                         boxSizing: "border-box",
                         display: "flex",
                         alignItems: "stretch",
                         overflow: "hidden",
-                        background: n.severity === "critical" ? "#fff6f5" : CARD.top,
+                        background: n.severity === "critical" ? `color-mix(in srgb, ${T.critical} 7%, ${CARD.top})` : CARD.top,
                       }}
                       onPointerEnter={() => setHoverId(n.id)}
                       onPointerLeave={() => setHoverId(null)}
@@ -645,7 +645,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
-                      boxShadow: lit ? `0 0 0 ${focusedCap ? 3 : 2}px ${capColor}, 0 0 28px ${capColor}aa` : "inset 0 1px 0 rgba(255,255,255,0.08)",
+                      boxShadow: lit ? `0 0 0 ${focusedCap ? 3 : 2}px ${capColor}, 0 0 28px ${tint(capColor, 67)}` : "inset 0 1px 0 rgba(255,255,255,0.08)",
                       transition: "box-shadow 200ms",
                     }}
                   >

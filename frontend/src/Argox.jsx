@@ -68,7 +68,7 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
           {!following && (
             <button
               onClick={() => setPinnedSession(null)}
-              style={{ marginTop: 8, fontSize: 11, background: `${T.good}22`, color: T.good, border: `1px solid ${T.good}`, borderRadius: 999, padding: "4px 10px", cursor: "pointer" }}
+              style={{ marginTop: 8, fontSize: 11, background: `${T.good}22`, color: T.good, border: `1px solid ${T.good}`, borderRadius: 4, padding: "4px 10px", cursor: "pointer" }}
             >
               ● Follow live session
             </button>
@@ -124,7 +124,7 @@ function SessionPill({ session, active, isLive, onClick }) {
         gap: 8,
         padding: "6px 8px",
         marginBottom: 4,
-        borderRadius: 8,
+        borderRadius: 6,
         background: active ? T.surfaceRaised : "transparent",
         border: `1px solid ${active ? status.color + "55" : "transparent"}`,
         cursor: "pointer",
@@ -171,13 +171,13 @@ function ResourceSteps({ category, steps, selectedId, onPick, onClose }) {
               gap: 8,
               padding: "6px 8px",
               marginBottom: 3,
-              borderRadius: 8,
+              borderRadius: 6,
               cursor: "pointer",
               background: active ? T.surfaceRaised : "transparent",
               border: `1px solid ${active ? status.color + "55" : "transparent"}`,
             }}
           >
-            <span style={{ minWidth: 20, height: 20, borderRadius: 10, background: status.color, color: T.onAccent, fontSize: 10.5, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ minWidth: 20, height: 20, borderRadius: 4, background: status.color, color: T.onAccent, fontSize: 10.5, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
               {n.step}
             </span>
             <span style={{ fontSize: 12, fontFamily: T.fontMono, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>{n.label}</span>
@@ -196,7 +196,7 @@ function NodeDetail({ event, step }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
         <span style={{ fontSize: 11, color: T.inkMuted }}>Step {step}</span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, padding: "1px 7px 1px 5px", borderRadius: 999, background: `${status.color}1f`, color: status.color, fontWeight: 600 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, padding: "1px 7px 1px 5px", borderRadius: 4, background: `${status.color}1f`, color: status.color, fontWeight: 600 }}>
           <status.Icon size={10} color={status.color} />
           {status.label}
         </span>
@@ -209,7 +209,7 @@ function NodeDetail({ event, step }) {
       {visibleTags.length > 0 && (
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginBottom: 8 }}>
           {visibleTags.map((t) => (
-            <span key={t} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 999, background: T.surfaceRaised, border: `1px solid ${T.border}`, color: T.inkSecondary }}>
+            <span key={t} style={{ fontSize: 10, padding: "1px 7px", borderRadius: 4, background: T.surfaceRaised, border: `1px solid ${T.border}`, color: T.inkSecondary }}>
               {TAG_LABELS[t]}
             </span>
           ))}

@@ -236,7 +236,7 @@ function StatusRow({ label, status, detail }) {
         alignItems: "center",
         justifyContent: "space-between",
         padding: "10px 14px",
-        borderRadius: 8,
+        borderRadius: 6,
         background: T.surface,
         border: `1px solid ${T.border}`,
       }}
@@ -274,14 +274,14 @@ function CommandRow({ cmd, hint }) {
         justifyContent: "space-between",
         gap: 10,
         padding: "9px 12px",
-        borderRadius: 8,
-        background: T.ink,
+        borderRadius: 6,
+        background: TERM_BG,
         border: `1px solid ${T.border}`,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-        <IconTerminal size={13} color={T.page} />
-        <code style={{ fontSize: 12.5, fontFamily: T.fontMono, color: T.page, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+        <IconTerminal size={13} color={TERM_FG} />
+        <code style={{ fontSize: 12.5, fontFamily: T.fontMono, color: TERM_FG, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
           {cmd}
         </code>
       </div>
@@ -306,9 +306,9 @@ function CodeBlock({ text }) {
         style={{
           margin: 0,
           padding: "14px 16px",
-          borderRadius: 8,
-          background: T.ink,
-          color: T.page,
+          borderRadius: 6,
+          background: TERM_BG,
+          color: TERM_FG,
           fontSize: 12,
           fontFamily: T.fontMono,
           lineHeight: 1.5,
@@ -326,7 +326,7 @@ function CodeBlock({ text }) {
 
 const cardStyle = {
   border: `1px solid ${T.border}`,
-  borderRadius: 10,
+  borderRadius: 6,
   padding: "18px 18px 20px",
   marginBottom: 20,
 };
@@ -339,13 +339,18 @@ const codeInline = {
   borderRadius: 4,
 };
 
+// Terminal-style blocks stay dark in both themes (inverting with T.ink
+// would turn them light-grey in dark mode).
+const TERM_BG = "#141412";
+const TERM_FG = "#ededeb";
+
 const copyButtonStyle = {
   flexShrink: 0,
   padding: "4px 10px",
   borderRadius: 6,
-  border: `1px solid ${T.page}40`,
+  border: `1px solid rgba(255,255,255,0.25)`,
   background: "transparent",
-  color: T.page,
+  color: TERM_FG,
   fontSize: 11.5,
   fontWeight: 600,
   cursor: "pointer",
@@ -353,7 +358,7 @@ const copyButtonStyle = {
 
 const submitStyle = {
   padding: "9px 14px",
-  borderRadius: 8,
+  borderRadius: 6,
   border: "none",
   background: T.accent,
   color: T.onAccent,
@@ -366,7 +371,7 @@ const pathInputStyle = {
   width: "100%",
   boxSizing: "border-box",
   padding: "9px 12px",
-  borderRadius: 8,
+  borderRadius: 6,
   border: `1px solid ${T.borderStrong}`,
   background: T.surface,
   color: T.ink,
