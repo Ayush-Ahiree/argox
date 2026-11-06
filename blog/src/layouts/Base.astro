@@ -1,0 +1,128 @@
+---
+import { ClientRouter } from "astro:transitions";
+import "../styles/global.css";
+import { SITE_NAME, SITE_DESCRIPTION, MAIN_SITE, SIGNUP_URL, u } from "../lib/site";
+
+interface Props {
+  title: string;
+  description?: string;
+  image?: string;
+  type?: "website" | "article";
+  jsonLd?: Record<string, unknown>[];
+  noindex?: boolean;
+  published?: Date;
+  modified?: Date;
+}
+
+const { title, description = SITE_DESCRIPTION, image = u("/og-default.png"), type = "website", jsonLd = [], noindex = false, published, modified } = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const ogImage = new URL(image, Astro.site);
+const fullTitle = title === SITE_NAME ? `${SITE_NAME}: AI Agent Security Guides` : `${title} | ${SITE_NAME}`;
+const path = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex" />}
+    <meta name="theme-color" content="#025841" />
+    <meta name="generator" content={Astro.generator} />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={SITE_NAME} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    {published && <meta property="article:published_time" content={published.toISOString()} />}
+    {modified && <meta property="article:modified_time" content={modified.toISOString()} />}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <link rel="icon" href={u("/favicon.ico")} sizes="any" />
+    <link rel="icon" href={u("/favicon.svg")} type="image/svg+xml" />
+    <link rel="apple-touch-icon" href={u("/apple-touch-icon.png")} />
+    <link rel="alternate" type="application/rss+xml" title={SITE_NAME} href={u("/rss.xml")} />
+    <link rel="sitemap" href={u("/sitemap-index.xml")} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Geist+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+
+    {jsonLd.map((ld) => <script type="application/ld+json" set:html={JSON.stringify(ld).replace(/</g, "\\u003c")} />)}
+
+    <!-- theme + reader prefs before first paint; re-applied after every client-side navigation -->
+    <script is:inline>
+      (function () {
+        function apply() {
+          var d = document.documentElement;
+          try {
+            var t = localStorage.getItem("argox_theme_v1");
+            if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+            d.dataset.theme = t;
+            if (localStorage.getItem("argox_focus") === "1") d.dataset.focus = "1";
+          } catch (e) {}
+          d.classList.add("js");
+        }
+        apply();
+        document.addEventListener("astro:after-swap", apply);
+      })();
+    </script>
+    <ClientRouter />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="progress" aria-hidden="true" transition:persist><span></span></div>
+
+    <header class="nav" transition:persist="nav">
+      <div class="wrap nav-inner">
+        <a href={u("/")} class="brand" aria-label="Argox blog home">
+          <img class="logo-light" src={u("/argox-lockup-black.svg")} alt="Argox" width="96" height="24" />
+          <img class="logo-dark" src={u("/argox-lockup-white.svg")} alt="" width="96" height="24" />
+          <span class="brand-tag">BLOG</span>
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          <a href={u("/")} aria-current={path.replace(/\/$/, "") === u("/").replace(/\/$/, "") ? "page" : undefined}>Articles</a>
+          <a href={MAIN_SITE}>Product</a>
+        </nav>
+        <div class="nav-cta">
+          <button class="icon-btn theme-btn" data-theme-toggle aria-label="Toggle dark mode" title="Toggle dark mode">
+            <svg class="moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"></path></svg>
+            <svg class="sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+          </button>
+          <a class="cbtn" href={SIGNUP_URL}><span class="cbtn-face">Try Argox <span class="arrow" aria-hidden="true">→</span></span></a>
+        </div>
+      </div>
+    </header>
+
+    <main id="main">
+      <slot />
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer-inner">
+        <span>© {new Date().getFullYear()} Argox · AI agent security</span>
+        <div class="footer-links">
+          <a href={MAIN_SITE}>getargox.com</a>
+          <a href={u("/rss.xml")}>RSS</a>
+        </div>
+      </div>
+    </footer>
+
+    <script>
+      import { init } from "../scripts/client";
+      document.addEventListener("astro:page-load", init);
+    </script>
+  </body>
+</html>

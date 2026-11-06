@@ -1,0 +1,25 @@
+---
+import Base from "../layouts/Base.astro";
+import { u } from "../lib/site";
+---
+
+<Base title="Page not found" noindex>
+  <section class="nf">
+    <div class="orbs" aria-hidden="true"><i class="o1"></i><i class="o2"></i></div>
+    <div class="wrap nf-inner">
+      <p class="code">404</p>
+      <h1>This page leaked out of existence.</h1>
+      <p>The article you're looking for doesn't exist, or it moved.</p>
+      <a class="btn" href={u("/")}>Back to all articles <span class="arrow">→</span></a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .nf { position: relative; overflow: hidden; padding: 140px 0 80px; text-align: center; }
+  .nf-inner { position: relative; z-index: 1; }
+  .code { font-family: var(--font-mono); font-size: 14px; font-weight: 600; letter-spacing: 0.2em; color: var(--accent-ink); margin: 0; }
+  h1 { font-family: var(--font-serif); font-weight: 600; font-size: clamp(36px, 6vw, 60px); letter-spacing: -0.025em; margin: 16px 0 0; text-wrap: balance; }
+  p { color: var(--ink-2); font-size: 18px; }
+  .btn { margin-top: 18px; }
+</style>

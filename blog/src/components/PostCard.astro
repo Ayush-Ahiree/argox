@@ -1,0 +1,67 @@
+---
+import Cover from "./Cover.astro";
+import { formatDate, readingTime, tagSlug, u, type Post } from "../lib/site";
+interface Props {
+  post: Post;
+  index?: number;
+  /** false for a second copy of a post on the same page (transition names must be unique) */
+  named?: boolean;
+  /** the grid's copy of the featured post: hidden under "All", shown when a topic filter matches */
+  featuredCopy?: boolean;
+}
+const { post, index = 0, named = true, featuredCopy = false } = Astro.props;
+const { title, description, pubDate, tags, hue, glyph } = post.data;
+---
+
+<article class:list={["card glass reveal", { "featured-copy": featuredCopy }]} data-spot data-tilt data-tags={tags.map(tagSlug).join(",")} style={`--d:${(index % 3) * 90}ms`} transition:name={named ? `card-${post.id}` : undefined}>
+  <a href={u(`/${post.id}/`)} class="card-link">
+    <Cover hue={hue} glyph={glyph} seed={post.id} name={named ? `cover-${post.id}` : undefined} />
+    <div class="card-body">
+      <div class="card-meta">
+        <time datetime={pubDate.toISOString()}>{formatDate(pubDate)}</time>
+        <span aria-hidden="true">·</span>
+        <span>{readingTime(post.body)} min read</span>
+      </div>
+      <h3 class="card-title"><span transition:name={named ? `title-${post.id}` : undefined}>{title}</span></h3>
+      <p class="card-desc">{description}</p>
+      <div class="card-foot">
+        <div class="card-tags">{tags.slice(0, 2).map((t) => <span class="tag">{t}</span>)}</div>
+        <span class="card-go" aria-hidden="true">Read <span>→</span></span>
+      </div>
+    </div>
+  </a>
+</article>
+
+<style>
+  .card {
+    --rx: 0deg; --ry: 0deg; --mx: 50%; --my: 50%;
+    position: relative;
+    border-radius: 16px;
+    transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry));
+    transition: transform 400ms var(--ease-out), box-shadow 300ms ease, opacity 700ms var(--ease-out);
+    will-change: transform;
+  }
+  .card.reveal { transform: perspective(900px) translateY(18px); }
+  .card.reveal.in { transform: perspective(900px) rotateX(var(--rx)) rotateY(var(--ry)); }
+  .card[hidden] { display: none; }
+  :global([data-filtering="all"]) .card.featured-copy { display: none; }
+  .card::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: radial-gradient(420px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent) 12%, transparent), transparent 45%);
+    opacity: 0; transition: opacity 300ms ease;
+  }
+  .card:hover::after { opacity: 1; }
+  .card:hover { box-shadow: inset 0 1px 0 var(--glass-hl), 0 0 0 1px var(--glass-edge), 0 24px 50px -20px rgba(23, 20, 14, 0.3); }
+  .card-link { display: flex; flex-direction: column; height: 100%; padding: 10px; }
+  .card-body { padding: 16px 12px 10px; display: flex; flex-direction: column; flex: 1; }
+  .card-meta { display: flex; gap: 8px; font-size: 13px; color: var(--muted); font-family: var(--font-mono); }
+  .card-title { font-family: var(--font-serif); font-weight: 600; font-size: 24px; line-height: 1.18; letter-spacing: -0.01em; margin: 10px 0 0; text-wrap: balance; }
+  .card-title span { background: linear-gradient(currentColor, currentColor) 0 100% / 0 1.5px no-repeat; transition: background-size 500ms var(--ease-out); }
+  .card:hover .card-title span { background-size: 100% 1.5px; }
+  .card-desc { color: var(--ink-2); font-size: 15px; line-height: 1.55; margin: 10px 0 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .card-foot { display: flex; align-items: center; justify-content: space-between; margin-top: auto; padding-top: 18px; gap: 10px; }
+  .card-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .card-go { font-size: 14px; font-weight: 600; color: var(--accent-ink); white-space: nowrap; }
+  .card-go span { display: inline-block; transition: transform 300ms var(--ease-out); }
+  .card:hover .card-go span { transform: translateX(4px); }
+</style>
