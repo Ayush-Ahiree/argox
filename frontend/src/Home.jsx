@@ -22,7 +22,6 @@ import { analyzeTrail, explainStep, TAG_INFO } from "./taintFlow.js";
  * JSON-LD in index.html -- keep the two in sync.
  */
 
-const GITHUB_URL = "https://github.com/Ayush-Ahiree/argox";
 const PYPI_URL = "https://pypi.org/project/argox/";
 const NPM_URL = "https://www.npmjs.com/package/@amisecured/argox";
 
@@ -155,7 +154,6 @@ export default function Home({ onSignIn, onGetStarted }) {
             {NAV_LINKS.map(([href, label]) => (
               <a key={href} href={href}>{label}</a>
             ))}
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
           </div>
           <div className="ax-nav-cta">
             <span className="ax-nav-theme"><ThemeToggle /></span>
@@ -176,7 +174,6 @@ export default function Home({ onSignIn, onGetStarted }) {
           {NAV_LINKS.map(([href, label]) => (
             <a key={href} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
           ))}
-          <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
           <div className="ax-menu-theme">
             <span>Theme</span>
             <ThemeToggle />
@@ -353,7 +350,6 @@ export default function Home({ onSignIn, onGetStarted }) {
           <div className="ax-muted ax-footer-tag">AI agent security: a data firewall for Claude Code and Python agents.</div>
           <div className="ax-footer-links">
             <a href="/blog/">Blog</a>
-            <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
             <a href={PYPI_URL} target="_blank" rel="noreferrer">PyPI</a>
             <a href={NPM_URL} target="_blank" rel="noreferrer">npm</a>
             <button className="ax-link-btn" onClick={onSignIn}>Sign in</button>
