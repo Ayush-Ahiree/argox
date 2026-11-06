@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { eventIdentity } from "./sessionUtils.js";
 import { API_BASE, HOSTED } from "./lib/config.js";
 import { authHeaders } from "./lib/api.js";
@@ -42,6 +42,12 @@ export function useEventStream(wsUrl, session = null) {
     }
   }, [events]);
 
+  // the hosted backend wants the login token as the first message, never in
+  // the URL (URLs end up in server logs). Read through a ref so a token
+  // refresh doesn't tear down a working connection.
+  const tokenRef = useRef(session?.access_token);
+  tokenRef.current = session?.access_token;
+
   useEffect(() => {
     const ws = new WebSocket(wsUrl);
     // also announce connection state app-wide so the header can show it
@@ -49,7 +55,10 @@ export function useEventStream(wsUrl, session = null) {
       setConnected(c);
       window.dispatchEvent(new CustomEvent("argox:ws", { detail: { connected: c } }));
     };
-    ws.onopen = () => announce(true);
+    ws.onopen = () => {
+      if (HOSTED && tokenRef.current) ws.send(JSON.stringify({ type: "auth", token: tokenRef.current }));
+      announce(true);
+    };
     ws.onclose = () => announce(false);
     ws.onerror = () => announce(false);
     ws.onmessage = (msg) => {

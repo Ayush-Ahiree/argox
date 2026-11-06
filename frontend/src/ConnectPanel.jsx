@@ -3,7 +3,7 @@ import { T, IconCheck, IconX, IconTerminal } from "./theme.jsx";
 import { API_BASE, HOSTED } from "./lib/config.js";
 
 const HOOK_SERVER_BASE = API_BASE;
-const RELAY_HEALTH_URL = HOSTED ? `${API_BASE}/confirm-status?id=__healthcheck__` : "http://localhost:8766/confirm-status?id=__healthcheck__";
+const RELAY_HEALTH_URL = HOSTED ? `${API_BASE}/healthz` : "http://localhost:8766/confirm-status?id=__healthcheck__";
 
 const START_COMMANDS = [
   { cmd: "cd agent && pip install -r requirements.txt", hint: "one-time setup" },

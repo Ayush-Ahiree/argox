@@ -83,7 +83,9 @@ export default function App() {
     setFreshApiKey(data.api_key);
   };
 
-  if (HOSTED && session === undefined) {
+  // While the session check runs, keep showing the homepage at "/" (it's
+  // prerendered into index.html), rather than flashing "Loading…" over it.
+  if (HOSTED && session === undefined && authRoute !== "home") {
     return <Centered>Loading…</Centered>;
   }
   if (HOSTED && !session) {
@@ -95,7 +97,7 @@ export default function App() {
 
   const wsUrl =
     HOSTED && project
-      ? `${WS_BASE}/ws?project_id=${project.id}&token=${encodeURIComponent(session.access_token)}`
+      ? `${WS_BASE}/ws?project_id=${project.id}`
       : "ws://localhost:8765";
 
   return (

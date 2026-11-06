@@ -1,13 +1,32 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Argox — the data firewall for AI agents</title>
-    <meta name="description" content="Argox tracks every secret and piece of personal data your AI agent reads, and blocks it the moment it tries to leave." />
-    <meta property="og:title" content="Argox — the data firewall for AI agents" />
-    <meta property="og:description" content="Stop AI agents from leaking what they read." />
+    <title>Argox: AI Agent Security Tool | Data Firewall for AI Agents</title>
+    <meta
+      name="description"
+      content="Argox is an AI agent security tool that stops Claude Code and Python agents from leaking secrets and personal data. It tracks what your agent reads and blocks exfiltration and prompt injection before the tool call runs."
+    />
+    <meta name="keywords" content="AI agent security, AI agent security tool, AI agent firewall, LLM agent security, Claude Code security, prompt injection protection, AI data exfiltration, agentic AI security, MCP security" />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <meta name="theme-color" content="#025841" />
+    <link rel="canonical" href="https://www.getargox.com/" />
+
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Argox" />
+    <meta property="og:url" content="https://www.getargox.com/" />
+    <meta property="og:title" content="Argox: AI Agent Security Tool | Data Firewall for AI Agents" />
+    <meta property="og:description" content="Stop AI agents from leaking what they read. Argox tracks secrets and personal data your agent touches and blocks them before they leave." />
+    <meta property="og:image" content="https://www.getargox.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Argox: stop AI agents from leaking what they read" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Argox: AI Agent Security Tool" />
+    <meta name="twitter:description" content="Stop AI agents from leaking what they read. A data firewall for Claude Code and Python agents." />
+    <meta name="twitter:image" content="https://www.getargox.com/og-image.png" />
+
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -17,6 +36,52 @@
       href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=Newsreader:ital,wght@0,400;0,500;0,600;1,400&display=swap"
       rel="stylesheet"
     />
+
+    <!-- set the saved / system theme before first paint (same logic as theme.jsx initialTheme) -->
+    <script>
+      try {
+        var t = localStorage.getItem("argox_theme_v1");
+        if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://www.getargox.com/#org",
+            "name": "Argox",
+            "url": "https://www.getargox.com/",
+            "logo": "https://www.getargox.com/apple-touch-icon.png",
+            "sameAs": [
+              "https://github.com/Ayush-Ahiree/argox",
+              "https://pypi.org/project/argox/",
+              "https://www.npmjs.com/package/@amisecured/argox"
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://www.getargox.com/#website",
+            "url": "https://www.getargox.com/",
+            "name": "Argox",
+            "publisher": { "@id": "https://www.getargox.com/#org" }
+          },
+          {
+            "@type": "SoftwareApplication",
+            "name": "Argox",
+            "url": "https://www.getargox.com/",
+            "applicationCategory": "SecurityApplication",
+            "operatingSystem": "macOS, Linux, Windows",
+            "description": "AI agent security tool: a data firewall that tracks secrets and personal data an AI agent reads and blocks exfiltration and prompt-injection-driven tool calls before they run. Works with Claude Code and Python agents.",
+            "publisher": { "@id": "https://www.getargox.com/#org" }
+          }
+        ]
+      }
+    </script>
+    <!--faq-jsonld-->
   </head>
   <body style="margin:0">
     <div id="root"></div>

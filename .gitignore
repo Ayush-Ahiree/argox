@@ -1,6 +1,7 @@
 # Dependencies
 frontend/node_modules/
 frontend/dist/
+frontend/dist-ssr/
 secrets/test_secret.txt
 
 # Python
