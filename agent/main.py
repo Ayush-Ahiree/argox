@@ -81,8 +81,21 @@ _connected: dict[str, set[WebSocket]] = {}
 # Pending pause/confirm requests -- same shape as ws_relay.py's
 # _PENDING_CONFIRMS, kept in-process here since main.py IS the relay for
 # the hosted path (no separate process to bridge to over HTTP).
-_pending_confirms: dict[str, bool] = {}
+# confirm_id -> owning project_id while a tool call waits; only a member of
+# that project may answer it (found 2026-11-06: any logged-in user of any
+# tenant could answer any confirm id).
+_pending_owner: dict[str, str] = {}
+# confirm_id -> (approved, user_id who answered)
+_pending_confirms: dict[str, tuple[bool, str]] = {}
 _pending_lock = threading.Lock()
+
+
+def _confirm_resolver(confirm_id: str) -> dict:
+    with _pending_lock:
+        if confirm_id in _pending_confirms:
+            approved, _ = _pending_confirms[confirm_id]
+            return {"resolved": True, "approved": approved}
+    return {"resolved": False}
 
 
 @app.on_event("startup")
@@ -187,19 +200,25 @@ async def _decide(mapped_tool: str, target: str, params: dict, session_id: str, 
         return DECISION_TO_PERMISSION[result.decision], ("; ".join(result.reasons) if result.reasons else "ok")
 
     reason_text = "; ".join(result.reasons) if result.reasons else "confirmation needed"
+    confirm_id = str(uuid.uuid4())
+    with _pending_lock:
+        _pending_owner[confirm_id] = project_id
     try:
         approved = await run_in_threadpool(
             web_confirm, mapped_tool, target, result.reasons,
             session_id=session_id, project_id=project_id, publish_fn=publish,
             timeout=CONFIRM_TIMEOUT_SECONDS,
-            confirm_status_url=f"http://127.0.0.1:{PORT}/confirm-status",
+            confirm_id=confirm_id, resolver=_confirm_resolver,
         )
-    except ConnectionError:
-        return "ask", reason_text
+    finally:
+        with _pending_lock:
+            _pending_owner.pop(confirm_id, None)
+            answer = _pending_confirms.pop(confirm_id, None)
 
     await run_in_threadpool(
         record_confirm_resolution, mapped_tool, target, bool(approved),
         session_id=session_id, project_id=project_id, publish_fn=publish,
+        resolved_by=answer[1] if answer else None,
     )
     if approved:
         return "allow", "approved via Argox dashboard"
@@ -319,23 +338,34 @@ async def tool_result(payload: dict, project: dict = Depends(require_api_key_pro
     return {"status": "ok"}
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
+
+
 @app.get("/confirm-status")
-async def confirm_status(id: str = Query(...)):
-    with _pending_lock:
-        if id in _pending_confirms:
-            return {"resolved": True, "approved": _pending_confirms.pop(id)}
+async def confirm_status(id: str = Query(None)):
+    # Kept only as a liveness URL for dashboards deployed before /healthz.
+    # Confirmations are resolved in-process now (_confirm_resolver); this
+    # used to hand any unauthenticated caller the answer -- and pop it, so
+    # the waiting tool call never saw it.
     return {"resolved": False}
 
 
 @app.post("/confirm-response")
 async def confirm_response(payload: dict, user_id: str = Depends(require_user)):
-    # Not cross-checked against a specific project (confirm_id is an
-    # unguessable uuid4, same trust model the local relay already used
-    # with zero auth at all) -- this at least requires a logged-in user,
-    # which the unauthenticated local relay never did.
-    confirm_id = payload["id"]
+    confirm_id = str(payload.get("id") or "")
+    if not isinstance(payload.get("approved"), bool):
+        raise HTTPException(422, "approved must be true or false")
     with _pending_lock:
-        _pending_confirms[confirm_id] = bool(payload["approved"])
+        owner = _pending_owner.get(confirm_id)
+    # same 404 for "no such request" and "not your project": don't confirm
+    # to another tenant that an id exists
+    if not owner or not await db.get_project_for_user(owner, user_id):
+        raise HTTPException(404, "no pending request with that id")
+    with _pending_lock:
+        if confirm_id in _pending_owner and confirm_id not in _pending_confirms:
+            _pending_confirms[confirm_id] = (payload["approved"], user_id)
     return {"status": "ok"}
 
 
@@ -408,19 +438,40 @@ async def project_feedback(project_id: str, payload: dict, user_id: str = Depend
 
 # ------------------------------------------------------------- websocket ---
 
-@app.websocket("/ws")
-async def ws_stream(websocket: WebSocket, project_id: str = Query(...), token: str = Query(...)):
+WS_AUTH_TIMEOUT_S = 10
+
+
+async def _ws_close(websocket: WebSocket, code: int):
     try:
-        user_id = auth.verify_jwt(token)
-    except pyjwt.PyJWTError:
-        await websocket.close(code=4401)
+        await websocket.close(code=code)
+    except RuntimeError:
+        pass  # client already went away
+
+
+@app.websocket("/ws")
+async def ws_stream(websocket: WebSocket, project_id: str = Query(...), token: str = Query(None)):
+    # The dashboard sends its JWT as the first message, {"type": "auth",
+    # "token": ...}, not in the URL: query strings land in Render's access
+    # logs (found 2026-11-06), and a logged JWT is a dashboard takeover.
+    # ?token= is still read so dashboards open in a browser from before this
+    # change keep working until reloaded -- remove it after a deploy cycle.
+    await websocket.accept()
+    if not token:
+        try:
+            msg = json.loads(await asyncio.wait_for(websocket.receive_text(), WS_AUTH_TIMEOUT_S))
+            token = msg.get("token") if isinstance(msg, dict) and msg.get("type") == "auth" else None
+        except (asyncio.TimeoutError, WebSocketDisconnect, ValueError):
+            token = None
+    try:
+        user_id = auth.verify_jwt(token or "")
+    except (pyjwt.PyJWTError, KeyError, ValueError):
+        await _ws_close(websocket, 4401)
         return
     project = await db.get_project_for_user(project_id, user_id)
     if not project:
-        await websocket.close(code=4404)
+        await _ws_close(websocket, 4404)
         return
 
-    await websocket.accept()
     _connected.setdefault(project_id, set()).add(websocket)
     try:
         for event in await db.recent_events(project_id):

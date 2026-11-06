@@ -332,14 +332,16 @@ def _precheck(tool_name, target, params, override_reason, session_id, project_id
     return policy_result
 
 
-def record_confirm_resolution(tool_name: str, target: str, approved: bool, session_id: str = None, project_id: str = None, publish_fn=None):
+def record_confirm_resolution(tool_name: str, target: str, approved: bool, session_id: str = None, project_id: str = None, publish_fn=None, resolved_by: str = None):
     """A pending_confirm decision doesn't end at evaluate_call() anymore --
     a human resolves it. Broadcast the actual outcome so the panel/
     telemetry stream reflects what really happened, not just the
     pre-human-input pause. Also a real span, linked into the session's
     trace like everything else.
 
-    project_id / publish_fn: see precheck()."""
+    project_id / publish_fn: see precheck(). resolved_by: the dashboard
+    user who answered (hosted backend), for the audit trail; None when
+    nobody answered in time or there's no login (local relay)."""
     ctx = get_taint_context(session_id, project_id=project_id)
     publish = publish_fn or broadcast
 
@@ -349,7 +351,7 @@ def record_confirm_resolution(tool_name: str, target: str, approved: bool, sessi
         span.set_attribute("approved", approved)
         span.set_attribute("session.id", ctx.session_id)
 
-    publish({
+    event = {
         "type": "confirm_resolution",
         "session_id": ctx.session_id,
         "tool": tool_name,
@@ -357,10 +359,13 @@ def record_confirm_resolution(tool_name: str, target: str, approved: bool, sessi
         "decision": "allow" if approved else "block",
         "trace_id": _trace_id_hex(ctx),
         "ts": time.time(),
-    })
+    }
+    if resolved_by:
+        event["resolved_by"] = resolved_by
+    publish(event)
 
 
-def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = None, timeout: float = 110.0, project_id: str = None, publish_fn=None, confirm_status_url: str = None):
+def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = None, timeout: float = 110.0, project_id: str = None, publish_fn=None, confirm_status_url: str = None, confirm_id: str = None, resolver=None):
     """Broadcast a confirm_request (the panel shows Approve/Deny buttons)
     and poll for a decision. Shared by tools.py's toy-agent confirm flow
     and hook_server.py's Claude Code PENDING_CONFIRM path -- same
@@ -377,6 +382,11 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     poll for the resolution -- defaults to the local relay's HTTP endpoint;
     the hosted backend (agent/main.py) passes its own in-process resolver
     instead of polling itself over HTTP.
+
+    confirm_id / resolver: the hosted backend picks the id itself (so it
+    can record which project owns it before the dashboard can answer) and
+    passes resolver(confirm_id) -> {"resolved": bool, "approved": bool},
+    checked in-process instead of over HTTP.
     """
     import urllib.error
     import urllib.request
@@ -385,7 +395,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     ctx = get_taint_context(session_id, project_id=project_id)
     publish = publish_fn or broadcast
     _session_parent_context(ctx)  # ensure root_span_context exists so trace_id below is real, not None
-    confirm_id = str(uuid.uuid4())
+    confirm_id = confirm_id or str(uuid.uuid4())
     publish({
         "type": "confirm_request",
         "id": confirm_id,
@@ -400,11 +410,14 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     status_url = f"{confirm_status_url or 'http://localhost:8766/confirm-status'}?id={confirm_id}"
     deadline = time.time() + timeout
     while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(status_url, timeout=3) as resp:
-                data = json.loads(resp.read())
-        except (urllib.error.URLError, OSError) as e:
-            raise ConnectionError("relay unreachable") from e
+        if resolver is not None:
+            data = resolver(confirm_id)
+        else:
+            try:
+                with urllib.request.urlopen(status_url, timeout=3) as resp:
+                    data = json.loads(resp.read())
+            except (urllib.error.URLError, OSError) as e:
+                raise ConnectionError("relay unreachable") from e
         if data.get("resolved"):
             return bool(data.get("approved"))
         time.sleep(1)
