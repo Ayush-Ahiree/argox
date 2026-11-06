@@ -120,6 +120,13 @@ export function explainStep(node, analysis) {
         text: file ? `If the agent should never read ${file}, protect it so the read is blocked next time.` : "If the agent should never have read that data, protect its path so the read is blocked next time.",
         action: { label: "Protect path…", prefill: file ? { protectPath: file } : {} },
       });
+    } else if (r === "cloud_metadata_access") {
+      out.why.push("This call reaches the cloud metadata service (169.254.169.254 or similar). It hands out the machine's cloud credentials to anything that asks, so it's blocked whatever the session holds.");
+      out.fixes.push({ text: "An agent almost never needs this. If you do (e.g. debugging instance setup), run the command yourself, or turn off the cloud-metadata rule in Policy.", action: { label: "Open Policy" } });
+    } else if (r === "secret_literal_in_outbound_call") {
+      out.why.push(`The command itself contains something that looks like a secret (an API key, token or password), and it sends data to ${dest || "a destination outside your trust boundary"}.`);
+      out.fixes.push({ text: `Approve if this is your own key going to its own service (e.g. an OpenAI key to api.openai.com). Deny if ${dest || "the destination"} isn't where that key belongs.` });
+      out.fixes.push({ text: "Better: have the agent read keys from an environment variable ($API_KEY) instead of pasting them into commands." });
     } else if (r === "external_destination_untainted") {
       out.why.push(`${dest || "This destination"} is new and outside your trust boundary. Nothing sensitive was being held, so it was allowed and flagged so you can review it.`);
       out.fixes.push({ text: "No action needed if you expected this call." });

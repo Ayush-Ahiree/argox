@@ -31,7 +31,7 @@ const MORPH_MS = 700;
 const TILTED = "rotateX(42deg) rotateZ(-14deg) scale(0.86)";
 
 export default function Argox({ wsUrl = "ws://localhost:8765", project = null, session = null }) {
-  const { events, connected } = useEventStream(wsUrl);
+  const { events, connected } = useEventStream(wsUrl, session);
   const [pinnedSession, setPinnedSession] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [focusCat, setFocusCat] = useState(null);

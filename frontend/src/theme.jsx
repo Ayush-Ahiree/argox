@@ -151,6 +151,8 @@ const REASON_LABELS = {
   pii_crossing_trust_boundary: "Would send personal information outside the system",
   internal_data_crossing_trust_boundary: "Would send internal-only data outside the system",
   external_destination_untainted: "New external destination — allowed, flagged for review",
+  cloud_metadata_access: "Tried to read the cloud metadata service, which hands out this machine's cloud credentials",
+  secret_literal_in_outbound_call: "A secret is written directly into this outbound call",
   untrusted_content_then_egress: "Outbound call after reading outside content — possible prompt injection, flagged for review",
   secret_session_publish: "Publishing while the session holds secret data — asks first",
 };
