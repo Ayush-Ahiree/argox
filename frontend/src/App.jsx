@@ -41,6 +41,13 @@ export default function App() {
     if (view === "connect") localStorage.setItem(CONNECT_SEEN_KEY, "1");
   }, [view]);
 
+  // other views can ask to switch tabs (e.g. the Graph's "Open Policy" fix link)
+  useEffect(() => {
+    const go = (e) => e.detail && TABS.some((t) => t.id === e.detail.view) && setView(e.detail.view);
+    window.addEventListener("argox:navigate", go);
+    return () => window.removeEventListener("argox:navigate", go);
+  }, []);
+
   useEffect(() => {
     if (!HOSTED) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));

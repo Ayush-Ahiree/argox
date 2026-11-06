@@ -270,7 +270,7 @@ function linkPath(a, b) {
 // steps arrive.
 // `flat` tilts the camera straight down (rotateX/Z -> 0); the transform
 // transition animates it, which is how the Graph tab morphs into its 2D view.
-export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0, flat = false, showLegend = true }) {
+export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, relatedIds = null, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0, flat = false, showLegend = true }) {
   const steps = trail.nodes.filter((n) => !n.isStart);
   const start = trail.nodes.find((n) => n.isStart);
   const L = useMemo(() => layout(Math.max(steps.length, layoutSteps)), [steps.length, layoutSteps]);
@@ -554,7 +554,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
               const alarm = n.severity === "critical" || n.severity === "warning";
               const meta = TOOL_META[n.event.tool];
               const dimmed = !inFocus(n);
-              const focused = !!activeCat && !dimmed;
+              // a step linked by data flow to the selected one (its cause or effect) lifts too
+              const focused = (!!activeCat && !dimmed) || (!!relatedIds && relatedIds.has(n.id));
               const lift = selected ? 18 : focused ? 14 : hovered ? 10 : 0;
               return (
                 <div

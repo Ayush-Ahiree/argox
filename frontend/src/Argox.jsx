@@ -5,6 +5,7 @@ import { useEventStream } from "./useEventStream.js";
 import { buildTrail } from "./pathLayout.js";
 import IsoTrail, { CATEGORIES } from "./IsoTrail.jsx";
 import TwoDTrail, { LANES, laneOf, stepTitle } from "./TwoDTrail.jsx";
+import { analyzeTrail, explainStep, TAG_INFO } from "./taintFlow.js";
 
 /**
  * Live path-tracing view. Each session is an actual chain: step 1 -> 2
@@ -19,11 +20,12 @@ import TwoDTrail, { LANES, laneOf, stepTitle } from "./TwoDTrail.jsx";
  *
  * Defaults to auto-following the most recently active session; clicking
  * an older session pins the view there until you click "Follow live".
- * The replay bar scrubs/plays the session step by step.
+ * The bar above the views jumps between incidents (flagged / blocked /
+ * asked) and scrubs the session to any step -- with the "held" band that
+ * shows what sensitive data the agent was carrying at that point.
  */
 
 const MORPH_MS = 700;
-const REPLAY_STEP_MS = 650;
 // the angle the 2D lanes tilt away to (matches the 3D camera's direction)
 const TILTED = "rotateX(42deg) rotateZ(-14deg) scale(0.86)";
 
@@ -32,7 +34,7 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
   const [pinnedSession, setPinnedSession] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [focusCat, setFocusCat] = useState(null);
-  const [replay, setReplay] = useState({ pos: null, playing: false });
+  const [scrubPos, setScrubPos] = useState(null); // null = show everything (live)
 
   const sessions = useMemo(() => groupBySession(events), [events]);
   const activeSessionId = pinnedSession || (sessions[0] && sessions[0].sessionId);
@@ -43,34 +45,45 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
   const total = trail.nodes.length - 1;
 
   // replay: show only the first `pos` steps (null = everything, i.e. live)
-  const shown = replay.pos === null ? total : Math.min(replay.pos, total);
+  const shown = scrubPos === null ? total : Math.min(scrubPos, total);
   const visibleTrail = useMemo(
     () => (shown >= total ? trail : { nodes: trail.nodes.slice(0, shown + 1), links: trail.links.slice(0, shown) }),
     [trail, shown, total]
   );
   const visibleSteps = visibleTrail.nodes.filter((n) => n.event);
   const selectedNode = visibleSteps.find((n) => n.id === selectedId) || null;
+  const analysis = useMemo(() => analyzeTrail(visibleTrail), [visibleTrail]);
+
+  // what the selected step is linked to by data flow (its causes and effects)
+  const relatedIds = useMemo(() => {
+    if (!selectedNode) return null;
+    const ids = new Set();
+    (analysis.causes.get(selectedNode.id) || []).forEach((c) => c.sources.forEach((s) => ids.add(s.id)));
+    (analysis.effects.get(selectedNode.id) || []).forEach((n) => ids.add(n.id));
+    return ids.size ? ids : null;
+  }, [selectedNode, analysis]);
 
   useEffect(() => {
     setFocusCat(null);
     setSelectedId(null);
-    setReplay({ pos: null, playing: false });
+    setScrubPos(null);
   }, [activeSessionId]);
 
-  useEffect(() => {
-    if (!replay.playing) return;
-    const t = setInterval(() => {
-      setReplay((r) => {
-        const next = (r.pos ?? 0) + 1;
-        return next >= total ? { pos: null, playing: false } : { pos: next, playing: true };
-      });
-    }, REPLAY_STEP_MS);
-    return () => clearInterval(t);
-  }, [replay.playing, total]);
+  const scrub = (v) => setScrubPos(v >= total ? null : v);
 
-  const togglePlay = () =>
-    setReplay((r) => (r.playing ? { ...r, playing: false } : { pos: r.pos === null || r.pos >= total ? 0 : r.pos, playing: true }));
-  const scrub = (v) => setReplay({ pos: v >= total ? null : v, playing: false });
+  // incident navigation: jump between flagged / blocked / asked steps
+  const incidents = analysis.incidents;
+  const incIndex = selectedNode ? incidents.findIndex((n) => n.id === selectedNode.id) : -1;
+  const gotoIncident = (dir) => {
+    if (!incidents.length) return;
+    let target;
+    if (incIndex >= 0) target = incidents[(incIndex + dir + incidents.length) % incidents.length];
+    else {
+      const at = selectedNode ? selectedNode.step : dir > 0 ? 0 : Infinity;
+      target = dir > 0 ? incidents.find((n) => n.step > at) || incidents[0] : [...incidents].reverse().find((n) => n.step < at) || incidents[incidents.length - 1];
+    }
+    setSelectedId(target.id);
+  };
 
   // ---- 2D / 3D morph ----
   // mode: which view the toggle shows. flat: the 3D camera is top-down.
@@ -123,9 +136,10 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
           steps={trail.nodes.filter((n) => n.event)}
           shown={shown}
           total={total}
-          playing={replay.playing}
-          onTogglePlay={togglePlay}
           onScrub={scrub}
+          incidents={incidents}
+          incIndex={incIndex}
+          onIncident={gotoIncident}
           mode={mode}
           onMode={switchTo}
         />
@@ -151,6 +165,7 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
               connected={connected}
               live={following && !!activeSession}
               selectedId={selectedId}
+              relatedIds={relatedIds}
               onSelect={onSelect}
               focusCat={focusCat}
               onFocusCat={setFocusCat}
@@ -178,11 +193,14 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
           >
             <TwoDTrail
               trail={visibleTrail}
+              analysis={analysis}
+              sessionKey={activeSessionId || "none"}
               selectedId={selectedId}
+              relatedIds={relatedIds}
               onSelect={onSelect}
               focusCat={focusCat}
               onFocusCat={setFocusCat}
-              follow={(following && replay.pos === null) || replay.playing}
+              follow={following && scrubPos === null}
               active={is2d}
             />
           </div>
@@ -237,7 +255,7 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
             <ResourceSteps category={focusCategory} steps={focusSteps} selectedId={selectedId} onPick={onSelect} onClose={() => setFocusCat(null)} />
           )}
           {selectedNode ? (
-            <StepDetail key={selectedNode.id} node={selectedNode} total={visibleSteps.length} prev={prev} next={next} onPick={onSelect} />
+            <StepDetail key={selectedNode.id} node={selectedNode} total={visibleSteps.length} prev={prev} next={next} onPick={onSelect} analysis={analysis} />
           ) : (
             !focusCategory && (
               <div style={{ fontSize: 12, color: T.inkMuted, textAlign: "center", marginTop: 20 }}>
@@ -251,7 +269,7 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
   );
 }
 
-function ReplayBar({ session, steps, shown, total, playing, onTogglePlay, onScrub, mode, onMode }) {
+function ReplayBar({ session, steps, shown, total, onScrub, incidents, incIndex, onIncident, mode, onMode }) {
   const meta = sourceMeta(session ? session.source : null);
   const counts = steps.reduce((acc, n) => ({ ...acc, [n.severity]: (acc[n.severity] || 0) + 1 }), {});
   const pct = total ? (shown / total) * 100 : 100;
@@ -266,7 +284,7 @@ function ReplayBar({ session, steps, shown, total, playing, onTogglePlay, onScru
               </span>
               {meta.label}
             </span>
-            <span style={{ fontSize: 11.5, color: T.inkMuted }}>Session replay</span>
+            <span style={{ fontSize: 11.5, color: T.inkMuted }}>Session trace</span>
           </div>
           <div style={{ fontFamily: T.fontMono, fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
             {session ? session.headline : "No session yet"}
@@ -287,40 +305,7 @@ function ReplayBar({ session, steps, shown, total, playing, onTogglePlay, onScru
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-        <button
-          className="ax-seg-btn"
-          onClick={onTogglePlay}
-          disabled={!total}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 7,
-            height: 28,
-            padding: "0 12px",
-            borderRadius: T.radius,
-            border: "none",
-            background: T.ink,
-            color: T.page,
-            fontFamily: T.font,
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: total ? "pointer" : "default",
-            opacity: total ? 1 : 0.5,
-            minWidth: 84,
-          }}
-        >
-          {playing ? (
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-              <rect x="1.5" y="1" width="2.5" height="8" fill="currentColor" />
-              <rect x="6" y="1" width="2.5" height="8" fill="currentColor" />
-            </svg>
-          ) : (
-            <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
-              <path d="M2 1 L9 5 L2 9 Z" fill="currentColor" />
-            </svg>
-          )}
-          {playing ? "Pause" : "Replay"}
-        </button>
+        <IncidentNav incidents={incidents} index={incIndex} onGo={onIncident} />
         <input
           className="ax-range"
           type="range"
@@ -337,6 +322,34 @@ function ReplayBar({ session, steps, shown, total, playing, onTogglePlay, onScru
         </span>
         <ViewToggle mode={mode} onMode={onMode} />
       </div>
+    </div>
+  );
+}
+
+// ◀ Incident 2 of 3 ▶ -- jump straight to what needs a look
+function IncidentNav({ incidents, index, onGo }) {
+  const n = incidents.length;
+  const arrow = (dir, label) => (
+    <button
+      className="ax-btn"
+      onClick={() => onGo(dir)}
+      disabled={!n}
+      aria-label={label}
+      title={label}
+      style={{ width: 26, height: 28, border: "none", background: "transparent", color: n ? T.ink : T.inkMuted, cursor: n ? "pointer" : "default", fontSize: 12, padding: 0 }}
+    >
+      {dir < 0 ? "◀" : "▶"}
+    </button>
+  );
+  const sev = index >= 0 ? STATUS[incidents[index].severity] : null;
+  return (
+    <div style={{ display: "inline-flex", alignItems: "center", height: 30, borderRadius: T.radius, border: `1px solid ${n ? tint(T.critical, 35) : T.border}`, background: n ? tint(T.critical, 6) : T.page, flexShrink: 0 }}>
+      {arrow(-1, "Previous incident")}
+      <span style={{ fontSize: 11.5, fontWeight: 600, minWidth: 118, textAlign: "center", color: n ? T.ink : T.inkMuted, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        {sev && <span style={{ width: 6, height: 6, borderRadius: "50%", background: sev.color }} />}
+        {!n ? "No incidents" : index >= 0 ? `Incident ${index + 1} of ${n}` : `${n} incident${n === 1 ? "" : "s"}`}
+      </span>
+      {arrow(1, "Next incident")}
     </div>
   );
 }
@@ -483,8 +496,9 @@ function ResourceSteps({ category, steps, selectedId, onPick, onClose }) {
   );
 }
 
-function StepDetail({ node, total, prev, next, onPick }) {
+function StepDetail({ node, total, prev, next, onPick, analysis }) {
   const event = node.event;
+  const ex = explainStep(node, analysis);
   const status = STATUS[eventSeverity(event)];
   const visibleTags = (event.tags || []).filter((t) => TAG_LABELS[t]);
   const lane = LANES.find((l) => l.id === laneOf(node));
@@ -513,6 +527,7 @@ function StepDetail({ node, total, prev, next, onPick }) {
       <div style={{ fontFamily: T.fontMono, fontSize: 12, padding: "8px 10px", borderRadius: T.radiusSm, background: T.sunken, border: `1px solid ${T.border}`, wordBreak: "break-all", marginBottom: 12 }}>
         {event.target}
       </div>
+      <WhyPanel ex={ex} status={status} onPick={onPick} />
       <div style={{ display: "grid", gridTemplateColumns: "84px 1fr", rowGap: 6, fontSize: 12, marginBottom: 10 }}>
         {rows.map(([k, v]) => (
           <React.Fragment key={k}>
@@ -569,6 +584,87 @@ function NavButton({ label, node, onPick, align = "left" }) {
       <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
         {node ? `Step ${node.step} · ${stepTitle(node.event)}` : "—"}
       </div>
+    </button>
+  );
+}
+
+// The security story for one step: what happened, what caused it, what it
+// led to, and what you can do about it.
+function WhyPanel({ ex, status, onPick }) {
+  const hasCause = ex.causes.some((c) => c.sources.length);
+  if (!ex.verdict && !ex.brought.length && !ex.ledTo.length) return null;
+  const goPolicy = () => window.dispatchEvent(new CustomEvent("argox:navigate", { detail: { view: "policy" } }));
+  const label = { fontSize: 10.5, fontWeight: 600, letterSpacing: 0.5, color: T.inkMuted, fontFamily: T.fontMono, margin: "10px 0 5px" };
+  return (
+    <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: T.radius, border: `1px solid ${ex.verdict ? tint(status.color, 40) : T.border}`, background: ex.verdict ? tint(status.color, 6) : T.page }}>
+      {ex.verdict && <div style={{ fontSize: 12.5, fontWeight: 700, color: status.ink }}>{ex.verdict}</div>}
+      {ex.why.map((w, i) => (
+        <p key={i} style={{ fontSize: 12, lineHeight: 1.5, margin: "6px 0 0", color: T.inkSecondary }}>{w}</p>
+      ))}
+
+      {hasCause && (
+        <>
+          <div style={label}>DATA CAME FROM</div>
+          {ex.causes.flatMap((c) => c.sources.map((s) => <StepLink key={`${c.tag}-${s.id}`} node={s} tag={c.tag} onPick={onPick} />))}
+        </>
+      )}
+
+      {ex.brought.length > 0 && (
+        <>
+          <div style={label}>BROUGHT INTO THE SESSION</div>
+          <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
+            {ex.brought.map((t) => (
+              <span key={t} style={{ fontSize: 11, fontWeight: 700, padding: "2px 7px", borderRadius: 3, color: TAG_INFO[t].color, background: tint(TAG_INFO[t].color, 14) }}>{TAG_INFO[t].label}</span>
+            ))}
+          </div>
+          <p style={{ fontSize: 11.5, lineHeight: 1.5, margin: "6px 0 0", color: T.inkMuted }}>
+            From here on, any call that sends data outside your trust boundary is checked against this.
+          </p>
+        </>
+      )}
+
+      {ex.ledTo.length > 0 && (
+        <>
+          <div style={label}>LED TO</div>
+          {ex.ledTo.map((n) => (
+            <StepLink key={n.id} node={n} onPick={onPick} />
+          ))}
+        </>
+      )}
+
+      {ex.fixes.length > 0 && (
+        <>
+          <div style={label}>HOW TO FIX</div>
+          <ul style={{ margin: 0, paddingLeft: 16 }}>
+            {ex.fixes.map((f, i) => (
+              <li key={i} style={{ fontSize: 12, lineHeight: 1.5, color: T.inkSecondary, marginBottom: 4 }}>
+                {f.text}
+                {f.policy && (
+                  <button onClick={goPolicy} className="ax-link-btn" style={{ marginLeft: 6, padding: 0, border: "none", background: "none", color: T.goodInk, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>
+                    Open Policy →
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function StepLink({ node, tag, onPick }) {
+  const st = STATUS[node.severity];
+  return (
+    <button
+      className="ax-btn"
+      onClick={() => onPick(node)}
+      style={{ display: "flex", alignItems: "center", gap: 7, width: "100%", textAlign: "left", padding: "5px 7px", marginBottom: 4, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", fontFamily: T.font, color: T.ink }}
+    >
+      <span style={{ minWidth: 18, height: 18, borderRadius: 4, background: st.color, color: "#fff", fontSize: 10, fontWeight: 700, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{node.step}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, flexShrink: 0 }}>{stepTitle(node.event)}</span>
+      <span style={{ fontSize: 11, fontFamily: T.fontMono, color: T.inkSecondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0, flex: 1 }}>{node.label}</span>
+      {tag && <span style={{ fontSize: 10, fontWeight: 700, color: TAG_INFO[tag].color, flexShrink: 0 }}>{TAG_INFO[tag].label}</span>}
     </button>
   );
 }
