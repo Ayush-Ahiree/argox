@@ -35,9 +35,11 @@ export function laneOf(node) {
   return "shell";
 }
 
-const TITLES = { read_file: "Read file", write_file: "Wrote file", run_shell: "Ran command", call_api: "Network request" };
+const TITLES = { read_file: "Read file", write_file: "Wrote file", run_shell: "Ran command", call_api: "Network request", websearch: "Web search" };
 export function stepTitle(event) {
-  return TITLES[event.tool] || event.tool;
+  const tool = event.tool || "";
+  if (tool.startsWith("mcp__")) return `MCP: ${tool.split("__").slice(1).join(" / ")}`;
+  return TITLES[tool] || tool;
 }
 
 const SEV_RANK = { clean: 0, approved: 1, flagged: 2, warning: 3, denied: 4, critical: 4 };

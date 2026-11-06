@@ -62,8 +62,8 @@ function shortLabel(event) {
       return target.slice(0, 24);
     }
   }
-  if (event.tool === "run_shell") {
-    // commands aren't paths: keep the start (the verb), not the text after the last "/"
+  if (event.tool === "run_shell" || event.tool === "websearch" || String(event.tool || "").startsWith("mcp__")) {
+    // commands / search queries aren't paths: keep the start (the verb), not the text after the last "/"
     const cmd = target.trim().replace(/\s+/g, " ");
     return cmd.length > 30 ? `${cmd.slice(0, 29)}…` : cmd;
   }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { T, tint, STATUS, TOOL_META, IconFile, IconTerminal, IconGlobe, IconLock, IconClaude, IconBot } from "./theme.jsx";
+import { T, tint, STATUS, TOOL_META, isInboundTool, IconFile, IconTerminal, IconGlobe, IconLock, IconClaude, IconBot } from "./theme.jsx";
 
 /**
  * Isometric 3D path view for the Graph tab, built with plain CSS 3D
@@ -59,7 +59,7 @@ export const CATEGORIES = [
     id: "network",
     label: "Network",
     Icon: IconGlobe,
-    match: (n) => n.event.tool === "call_api" || (n.event.tool === "run_shell" && SHELL_NETWORK_RE.test(n.event.target || "")),
+    match: (n) => n.event.tool === "call_api" || isInboundTool(n.event.tool) || (n.event.tool === "run_shell" && SHELL_NETWORK_RE.test(n.event.target || "")),
   },
   {
     // steps that brought sensitive data in, or were stopped/flagged for trying to move it out

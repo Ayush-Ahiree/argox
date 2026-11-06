@@ -122,7 +122,16 @@ export const TOOL_META = {
   write_file: { label: "Wrote file", Icon: IconFile },
   run_shell: { label: "Ran command", Icon: IconTerminal },
   call_api: { label: "Made network request", Icon: IconGlobe },
+  websearch: { label: "Web search", Icon: IconGlobe },
 };
+
+// Tools whose OUTPUT comes from outside the trust boundary -- content flows
+// in from the internet (or a third-party service behind an MCP server), so
+// it can carry prompt injection. Mirrors policy.py untrusted_source().
+export function isInboundTool(tool) {
+  const t = String(tool || "").toLowerCase();
+  return t === "websearch" || t === "web_search" || t.startsWith("mcp__");
+}
 
 export const SOURCE_META = {
   claude_code: { label: "Claude Code", Icon: IconClaude },

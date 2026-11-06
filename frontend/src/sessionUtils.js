@@ -21,7 +21,7 @@ export function deriveHeadline(events) {
     }
   }
   // commands aren't paths -- "git log -- app.py" shouldn't collapse to "app.py"
-  if (first.tool === "run_shell") return first.target.trim().replace(/\s+/g, " ");
+  if (first.tool === "run_shell" || first.tool === "websearch") return first.target.trim().replace(/\s+/g, " ");
   const parts = first.target.split("/");
   return parts[parts.length - 1] || first.target;
 }
