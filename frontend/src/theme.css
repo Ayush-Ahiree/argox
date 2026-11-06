@@ -1,0 +1,212 @@
+/*
+ * Theme tokens as CSS variables so light/dark can flip at runtime without
+ * re-rendering every inline style. theme.jsx's T object points at these.
+ * Toggled via <html data-theme="dark">.
+ */
+:root {
+  color-scheme: light;
+  --ax-page: #f5f4f1;
+  --ax-surface: #fcfcfa;
+  --ax-raised: #efeee9;
+  --ax-sunken: #f1f0ec;
+  --ax-code: #fbfaf7;
+  --ax-border: rgba(23, 20, 14, 0.09);
+  --ax-border-strong: rgba(23, 20, 14, 0.2);
+  --ax-ink: #17140e;
+  --ax-ink-2: #3a362e;
+  --ax-muted: #7d786c;
+  --ax-gridline: #e5e2d9;
+  --ax-accent: #025841;
+  --ax-accent-soft: #e6f2ed;
+  --ax-card-front: #ebe8e0;
+  --ax-card-side: #dedad0;
+  --ax-vignette: #f1eee7;
+  --ax-platform-top: #fcfbf8;
+  --ax-platform-front: #e8e5dc;
+  --ax-platform-side: #d9d5ca;
+  --ax-shadow: 0 1px 2px rgba(23, 20, 14, 0.05);
+
+  --ax-good-ink: #18772f;
+  --ax-warning-ink: #8a5a00;
+  --ax-critical-ink: #b42318;
+  --ax-flagged-ink: #6d28d9;
+  --ax-approved-ink: #1d4ed8;
+  --ax-warning-surface: #fdf3dc;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --ax-page: #131313;
+  --ax-surface: #1a1a19;
+  --ax-raised: #232322;
+  --ax-sunken: #20201f;
+  --ax-code: #0d0d0d;
+  --ax-border: rgba(255, 255, 255, 0.08);
+  --ax-border-strong: rgba(255, 255, 255, 0.18);
+  --ax-ink: #ededeb;
+  --ax-ink-2: #c9c8c4;
+  --ax-muted: #8b8a85;
+  --ax-gridline: #2a2a28;
+  --ax-accent: #4fc797;
+  --ax-accent-soft: rgba(79, 199, 151, 0.12);
+  --ax-card-front: #2a2a28;
+  --ax-card-side: #222220;
+  --ax-vignette: #101010;
+  --ax-platform-top: #1e1e1d;
+  --ax-platform-front: #161615;
+  --ax-platform-side: #111110;
+  --ax-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+
+  --ax-good-ink: #6fd98a;
+  --ax-warning-ink: #f5c451;
+  --ax-critical-ink: #f08a80;
+  --ax-flagged-ink: #b79cf7;
+  --ax-approved-ink: #8bb4f8;
+  --ax-warning-surface: #3a2f14;
+}
+
+html,
+body {
+  background: var(--ax-page);
+}
+
+.ax-btn {
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.ax-btn:hover:not(:disabled) {
+  background: var(--ax-raised) !important;
+}
+.ax-link-btn:hover {
+  text-decoration: underline;
+}
+.ax-session-head:hover {
+  background: var(--ax-sunken);
+}
+.ax-input:focus {
+  border-color: var(--ax-border-strong) !important;
+}
+.ax-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+.ax-scroll::-webkit-scrollbar-thumb {
+  background: var(--ax-border-strong);
+  border-radius: 5px;
+  border: 3px solid var(--ax-page);
+}
+
+.ax-logo-dark {
+  display: none;
+}
+:root[data-theme="dark"] .ax-logo-light {
+  display: none;
+}
+:root[data-theme="dark"] .ax-logo-dark {
+  display: block;
+}
+.ax-logo-light {
+  display: block;
+}
+
+/* ---------------------------------------------------------------- motion
+ * Short and subtle on purpose: this is a monitoring tool, motion should
+ * orient you, not slow you down. All of it is disabled for users who
+ * ask the OS for reduced motion. */
+/* opacity only: moving the wrapper would force the Graph's 3D scene to re-render every frame */
+@keyframes ax-view-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ax-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ax-expand {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.ax-view-enter {
+  animation: ax-view-in 180ms ease-out backwards;
+}
+.ax-rise {
+  animation: ax-rise 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.ax-expand {
+  animation: ax-expand 180ms ease-out both;
+}
+.ax-tab-indicator {
+  transition: transform 240ms cubic-bezier(0.3, 0.7, 0.2, 1), width 240ms cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+.ax-seg-btn {
+  transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+/* ---- Graph: 2D lanes view, replay bar, 2D/3D morph ---- */
+@keyframes ax-card-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ax-dash {
+  to { stroke-dashoffset: -18; }
+}
+.ax-2d-card {
+  animation: ax-card-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  transition: border-color 150ms ease, box-shadow 150ms ease, opacity 200ms ease;
+}
+.ax-2d-card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+.ax-2d-link {
+  animation: ax-card-in 260ms ease-out backwards;
+  transition: opacity 200ms ease;
+}
+.ax-dash {
+  animation: ax-dash 0.9s linear infinite;
+}
+/* the two Graph layers: transform = camera move, opacity = crossfade */
+.ax-morph {
+  transition: transform 700ms cubic-bezier(0.2, 0.8, 0.25, 1), opacity 420ms ease;
+}
+.ax-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--ax-ink) var(--p, 100%), var(--ax-border-strong) var(--p, 100%));
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+}
+.ax-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ax-surface);
+  border: 2px solid var(--ax-ink);
+}
+.ax-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ax-surface);
+  border: 2px solid var(--ax-ink);
+}
+.ax-range:focus-visible {
+  box-shadow: 0 0 0 3px var(--ax-accent-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ax-view-enter,
+  .ax-rise,
+  .ax-expand,
+  .ax-2d-card,
+  .ax-2d-link,
+  .ax-dash {
+    animation: none;
+  }
+  .ax-tab-indicator,
+  .ax-seg-btn,
+  .ax-morph {
+    transition: none;
+  }
+}

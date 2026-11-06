@@ -44,7 +44,7 @@ export default function LoginPage({ initialMode = "login", onBack }) {
 
   return (
     <div style={{ minHeight: "100vh", width: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, background: T.page, fontFamily: T.font }}>
-      <div style={{ width: 340, maxWidth: "calc(100% - 32px)", padding: 28, borderRadius: 12, border: `1px solid ${T.border}`, background: T.surface }}>
+      <div style={{ width: 340, maxWidth: "calc(100% - 32px)", padding: 28, borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface }}>
         <div style={{ marginBottom: 8 }}><ArgoxLogo /></div>
         <div style={{ fontSize: 13, color: T.inkSecondary, marginBottom: 20 }}>
           {mode === "login" && "Sign in to your dashboard"}
@@ -109,7 +109,7 @@ function LinkButton({ onClick, children }) {
 
 const inputStyle = {
   padding: "9px 12px",
-  borderRadius: 8,
+  borderRadius: 6,
   border: `1px solid ${T.borderStrong}`,
   background: T.page,
   color: T.ink,
@@ -119,7 +119,7 @@ const inputStyle = {
 
 const submitStyle = {
   padding: "9px 12px",
-  borderRadius: 8,
+  borderRadius: 6,
   border: "none",
   background: T.accent,
   color: T.onAccent,

@@ -52,7 +52,7 @@ HOOK_CONFIG = {
         "timeout": 120,
     },
     "PostToolUse": {
-        "matcher": "Read|WebFetch|Bash|Grep|mcp__.*",
+        "matcher": "Read|WebFetch|WebSearch|Bash|Grep|mcp__.*",
         "url": f"{HOOK_BASE_URL}/hooks/post-tool-use",
         "timeout": 10,
     },

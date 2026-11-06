@@ -1,24 +1,22 @@
 import React from "react";
 
 /**
- * Shared design tokens + icons + human-readable label maps, used by both
- * EventFeed.jsx and Argox.jsx so the two tabs read as one system
- * instead of drifting apart.
+ * Shared design tokens + icons + human-readable label maps, used by every
+ * dashboard tab so they read as one system instead of drifting apart.
  *
- * Palette + type follows thebillow.ai: a warm "paper" surface (not a
- * dark hacker-dashboard theme), Geist for UI/body text, Newsreader (a
- * serif) reserved for headline/editorial moments -- section titles,
- * the wordmark, session headlines -- the same way Billow uses it, not
- * sprinkled everywhere data/numbers need to stay legible.
+ * Neutral tokens are CSS variables (see theme.css) so the light/dark
+ * toggle flips the whole app without re-rendering. Status hues are fixed
+ * hex values that read on both surfaces; each also has an `ink` variant
+ * (darker on light, lighter on dark) for text inside status pills.
  *
- * Status palette (good/warning/serious/critical) validated via the
- * dataviz skill's six-checks validator -- the same four hex values are
- * documented to work on BOTH light and dark surfaces (icon+label
- * pairing is the mitigation for the two that sit under 3:1 contrast on
- * a light surface), so these didn't change when the chrome went light.
+ * Need a translucent version of any token? Use tint(color, pct) -- it
+ * works for both hex values and CSS variables (string-concatenating a
+ * hex alpha suffix onto a var() does not).
  */
 
-export const T = {
+// Static light palette, for surfaces that never follow the dashboard
+// theme toggle (the public marketing homepage).
+export const LIGHT = {
   page: "#faf9f7",
   surface: "#ffffff",
   surfaceRaised: "#f2f0ea",
@@ -43,12 +41,81 @@ export const T = {
   fontSerif: '"Newsreader", Georgia, serif',
 };
 
-export const STATUS = {
-  clean: { color: T.good, label: "Allowed", Icon: IconCheck },
-  flagged: { color: T.serious, label: "Flagged", Icon: IconFlag },
-  warning: { color: T.warning, label: "Needs Approval", Icon: IconAlert },
-  critical: { color: T.critical, label: "Blocked", Icon: IconX },
+export const T = {
+  page: "var(--ax-page)",
+  surface: "var(--ax-surface)",
+  surfaceRaised: "var(--ax-raised)",
+  sunken: "var(--ax-sunken)",
+  code: "var(--ax-code)",
+  border: "var(--ax-border)",
+  borderStrong: "var(--ax-border-strong)",
+  ink: "var(--ax-ink)",
+  inkSecondary: "var(--ax-ink-2)",
+  inkMuted: "var(--ax-muted)",
+  gridline: "var(--ax-gridline)",
+  onAccent: "#ffffff",
+  accent: "var(--ax-accent)",
+  accentSoft: "var(--ax-accent-soft)",
+  cool: "#a9d6e5",
+  coolInk: "#2f6f82",
+  coolSoft: "#e4f1f6",
+  cardFront: "var(--ax-card-front)",
+  cardSide: "var(--ax-card-side)",
+  vignette: "var(--ax-vignette)",
+  shadow: "var(--ax-shadow)",
+  warningSurface: "var(--ax-warning-surface)",
+  good: "#22a447",
+  warning: "#f0a818",
+  serious: "#8b5cf6",
+  flagged: "#8b5cf6",
+  approved: "#3b82f6",
+  critical: "#d93b3b",
+  goodInk: "var(--ax-good-ink)",
+  warningInk: "var(--ax-warning-ink)",
+  criticalInk: "var(--ax-critical-ink)",
+  flaggedInk: "var(--ax-flagged-ink)",
+  approvedInk: "var(--ax-approved-ink)",
+  radius: 6,
+  radiusSm: 4,
+  font: '"Geist", system-ui, -apple-system, "Segoe UI", sans-serif',
+  fontMono: '"Geist Mono", ui-monospace, "SF Mono", Menlo, monospace',
+  fontSerif: '"Newsreader", Georgia, serif',
 };
+
+export function tint(color, pct) {
+  return `color-mix(in srgb, ${color} ${pct}%, transparent)`;
+}
+
+export const STATUS = {
+  clean: { color: T.good, ink: T.goodInk, label: "Allowed", Icon: IconCheck },
+  flagged: { color: T.flagged, ink: T.flaggedInk, label: "Flagged", Icon: IconFlag },
+  warning: { color: T.warning, ink: T.warningInk, label: "Approval requested", Icon: IconAlert },
+  critical: { color: T.critical, ink: T.criticalInk, label: "Blocked", Icon: IconX },
+  approved: { color: T.approved, ink: T.approvedInk, label: "Approved by you", Icon: IconCheck },
+  denied: { color: T.critical, ink: T.criticalInk, label: "Denied by you", Icon: IconX },
+};
+
+// Persisted light/dark preference for the signed-in dashboard.
+const THEME_KEY = "argox_theme_v1";
+
+export function initialTheme() {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+  } catch {
+    // storage unavailable
+  }
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+export function applyTheme(mode) {
+  document.documentElement.dataset.theme = mode;
+  try {
+    localStorage.setItem(THEME_KEY, mode);
+  } catch {
+    // storage unavailable -- preference just won't persist
+  }
+}
 
 export const TOOL_META = {
   read_file: { label: "Read file", Icon: IconFile },
@@ -60,13 +127,21 @@ export const TOOL_META = {
 export const SOURCE_META = {
   claude_code: { label: "Claude Code", Icon: IconClaude },
   toy_agent: { label: "Toy Agent", Icon: IconBot },
+  api: { label: "SDK agent", Icon: IconBot },
 };
+
+// Unknown sources (future integrations) still need a label instead of
+// crashing the badge.
+export function sourceMeta(source) {
+  return SOURCE_META[source] || { label: source ? String(source).replace(/_/g, " ") : "Agent", Icon: IconBot };
+}
 
 export const TAG_LABELS = {
   pii: "Personal Info",
   secret: "Secret",
   internal_only: "Internal Only",
   user_uploaded: "User Uploaded",
+  untrusted: "Untrusted input",
   // "public" is intentionally omitted -- showing it teaches the user nothing
 };
 
@@ -76,6 +151,8 @@ const REASON_LABELS = {
   pii_crossing_trust_boundary: "Would send personal information outside the system",
   internal_data_crossing_trust_boundary: "Would send internal-only data outside the system",
   external_destination_untainted: "New external destination — allowed, flagged for review",
+  untrusted_content_then_egress: "Outbound call after reading outside content — possible prompt injection, flagged for review",
+  secret_session_publish: "Publishing while the session holds secret data — asks first",
 };
 
 export function humanReason(reason) {
@@ -92,6 +169,7 @@ export function humanReason(reason) {
 }
 
 export function eventSeverity(event) {
+  if (event.type === "confirm_resolution") return event.decision === "allow" ? "approved" : "denied";
   if (event.decision === "block") return "critical";
   if (event.decision === "pending_confirm") return "warning";
   if (event.decision === "allow" && (event.risk_score || 0) > 0) return "flagged";
@@ -211,8 +289,67 @@ export function IconLock({ size = 14, color = "currentColor", style }) {
   );
 }
 
-// Horizontal logo (mark + wordmark) from the brand kit, for light surfaces.
-// The kit's minimum width is 80px, so don't go below height 26.
-export function ArgoxLogo({ height = 26 }) {
-  return <img src="/argox-lockup-black.svg" alt="Argox" height={height} style={{ display: "block", height, width: "auto" }} />;
+// Horizontal logo (mark + wordmark) from the brand kit. The kit's minimum
+// width is 80px, so don't go below height 26. variant="auto" follows the
+// dashboard theme; "light" always uses the black lockup (for the public
+// homepage, which never goes dark).
+export function ArgoxLogo({ height = 26, variant = "auto" }) {
+  const img = (src, cls) => <img src={src} alt="Argox" height={height} className={cls} style={{ height, width: "auto" }} />;
+  if (variant === "light") return img("/argox-lockup-black.svg", undefined);
+  return (
+    <span style={{ display: "inline-flex" }}>
+      {img("/argox-lockup-black.svg", "ax-logo-light")}
+      {img("/argox-lockup-white.svg", "ax-logo-dark")}
+    </span>
+  );
+}
+
+export function IconSun({ size = 14, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <circle cx="8" cy="8" r="3" fill="none" stroke={color} strokeWidth="1.4" />
+      <path d="M8 1.5v1.6M8 12.9v1.6M1.5 8h1.6M12.9 8h1.6M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconMoon({ size = 14, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <path d="M13.5 9.6A5.8 5.8 0 016.4 2.5a5.8 5.8 0 107.1 7.1z" fill="none" stroke={color} strokeWidth="1.4" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconShield({ size = 14, color = "currentColor", style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" style={style}>
+      <path d="M8 1.6l5.2 2v4.1c0 3.2-2.2 5.6-5.2 6.7-3-1.1-5.2-3.5-5.2-6.7V3.6z" fill="none" stroke={color} strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconSearch({ size = 14, color = "currentColor", style }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" style={style}>
+      <circle cx="7" cy="7" r="4.6" fill="none" stroke={color} strokeWidth="1.4" />
+      <path d="M10.4 10.4l3.4 3.4" stroke={color} strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconDownload({ size = 14, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <path d="M8 2.5v7.5M4.8 7l3.2 3.2L11.2 7M3 13h10" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconTrash({ size = 14, color = "currentColor" }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16">
+      <path d="M2.8 4.2h10.4M6.3 4.2V2.6h3.4v1.6M4.2 4.2l.7 9.2h6.2l.7-9.2" fill="none" stroke={color} strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
 }

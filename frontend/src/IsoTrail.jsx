@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { T, STATUS, TOOL_META, IconFile, IconTerminal, IconGlobe, IconLock, IconClaude, IconBot } from "./theme.jsx";
+import { T, tint, STATUS, TOOL_META, IconFile, IconTerminal, IconGlobe, IconLock, IconClaude, IconBot } from "./theme.jsx";
 
 /**
  * Isometric 3D path view for the Graph tab, built with plain CSS 3D
@@ -43,8 +43,8 @@ const RZ = -32;
 const SEV_RANK = { clean: 0, flagged: 1, warning: 2, critical: 3 };
 
 const DARK = { top: "#24221d", front: "#16140f", side: "#0d0c09" };
-const PLATFORM = { top: "#fcfbf8", front: "#e8e5dc", side: "#d9d5ca" };
-const CARD = { top: T.surface, front: "#ebe8e0", side: "#dedad0" };
+const PLATFORM = { top: "var(--ax-platform-top)", front: "var(--ax-platform-front)", side: "var(--ax-platform-side)" };
+const CARD = { top: T.surface, front: T.cardFront, side: T.cardSide };
 
 // Resource blocks. `match` takes a trail node (see pathLayout.buildTrail).
 const SENSITIVE_TAGS = ["secret", "pii", "internal_only"];
@@ -74,21 +74,19 @@ export const CATEGORIES = [
 const FLOW = 80; // length of the glowing pulse travelling through a pipe
 
 const CSS = `
-@keyframes iso-drop { 0% { transform: translateZ(110px); opacity: 0; } 55% { opacity: 1; } 75% { transform: translateZ(-5px); } 100% { transform: translateZ(0); } }
-@keyframes iso-bob { 0%, 100% { transform: translateZ(1px); } 50% { transform: translateZ(8px); } }
+@keyframes iso-drop { 0% { transform: translateZ(14px); opacity: 0; } 100% { transform: translateZ(0); opacity: 1; } }
 @keyframes iso-ripple { 0% { transform: scale(0.7); opacity: 0.55; } 100% { transform: scale(1.9); opacity: 0; } }
 @keyframes iso-glow { 0%, 100% { box-shadow: 0 0 0 0 var(--glow); } 50% { box-shadow: 0 0 26px 6px var(--glow); } }
 @keyframes iso-flow-x { 0% { background-position: var(--from) 0; opacity: 1; } 80% { opacity: 1; } 100% { background-position: var(--to) 0; opacity: var(--end-opacity); } }
 @keyframes iso-flow-y { 0% { background-position: 0 var(--from); opacity: 1; } 80% { opacity: 1; } 100% { background-position: 0 var(--to); opacity: var(--end-opacity); } }
 @keyframes iso-led { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.iso-drop { animation: iso-drop 700ms cubic-bezier(.2,.8,.25,1) backwards; }
-.iso-bob { animation: iso-bob 4.5s ease-in-out infinite; }
+.iso-drop { animation: iso-drop 280ms ease-out backwards; }
 .iso-ripple { animation: iso-ripple 1.8s ease-out infinite; }
 .iso-glow { animation: iso-glow 2s ease-in-out infinite; }
 .iso-led { animation: iso-led 1.6s ease-in-out infinite; }
 .iso-card-lift { transition: transform 220ms cubic-bezier(.2,.8,.25,1); }
 @media (prefers-reduced-motion: reduce) {
-  .iso-drop, .iso-bob, .iso-ripple, .iso-glow, .iso-led, .iso-flow { animation: none !important; }
+  .iso-drop, .iso-ripple, .iso-glow, .iso-led, .iso-flow { animation: none !important; }
 }
 `;
 
@@ -96,12 +94,31 @@ function worse(a, b) {
   return SEV_RANK[a] >= SEV_RANK[b] ? a : b;
 }
 
-function Box({ w, d, h, colors, topStyle, style, className, children, ...rest }) {
+// An extruded block: top face + the two viewer-facing walls (front, left).
+//
+// `radius` rounds the block's vertical edges. A rounded top face alone
+// isn't enough -- flat walls would still run to the square corners and
+// poke out past the curve. So with a radius the walls stop `radius` short
+// of each corner, and the corners are filled by a stack of thin rounded
+// slices (CSS can't bend a plane), shaded from side colour to front colour
+// so the curve reads as turning from one wall into the other.
+const SLICE_STEP = 2.5; // px between slices; smaller = smoother corner, more DOM
+
+function Box({ w, d, h, colors, radius = 0, topStyle, style, className, children, ...rest }) {
+  const r = Math.min(radius, w / 2, d / 2);
+  const slices = r > 0 ? Math.max(1, Math.ceil(h / SLICE_STEP)) : 0;
+  const cornerFill = `linear-gradient(to bottom right, ${colors.side} 0%, ${colors.side} 35%, ${colors.front} 65%, ${colors.front} 100%)`;
   return (
-    <div className={className} style={{ position: "absolute", width: w, height: d, transformStyle: "preserve-3d", ...style }} {...rest}>
-      <div style={{ position: "absolute", left: 0, top: d, width: w, height: h, background: colors.front, transformOrigin: "top", transform: "rotateX(90deg)" }} />
-      <div style={{ position: "absolute", left: 0, top: 0, width: h, height: d, background: colors.side, transformOrigin: "left", transform: "rotateY(-90deg)" }} />
-      <div style={{ position: "absolute", inset: 0, transform: `translateZ(${h}px)`, background: colors.top, ...topStyle }}>{children}</div>
+    <div className={className} style={{ position: "absolute", width: w, height: d, transformStyle: "preserve-3d", borderRadius: r, ...style }} {...rest}>
+      {Array.from({ length: slices }, (_, i) => (
+        <div
+          key={i}
+          style={{ position: "absolute", inset: 0.5, borderRadius: r, background: cornerFill, transform: `translateZ(${Math.min(h - 0.5, i * SLICE_STEP)}px)` }}
+        />
+      ))}
+      <div style={{ position: "absolute", left: r, top: d, width: w - 2 * r, height: h, background: colors.front, transformOrigin: "top", transform: "rotateX(90deg)" }} />
+      <div style={{ position: "absolute", left: 0, top: r, width: h, height: d - 2 * r, background: colors.side, transformOrigin: "left", transform: "rotateY(-90deg)" }} />
+      <div style={{ position: "absolute", inset: 0, transform: `translateZ(${h}px)`, background: colors.top, ...topStyle, ...(r > 0 ? { borderRadius: r } : null) }}>{children}</div>
     </div>
   );
 }
@@ -172,10 +189,10 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
 
   return (
     <>
-      <div style={{ position: "absolute", left: left + 3, top: top + 6, width: w, height: d, background: "rgba(23,20,14,0.16)", filter: "blur(5px)", borderRadius: radius }} />
+      <div style={{ position: "absolute", left: left + 3, top: top + 6, width: w, height: d, background: "rgba(23,20,14,0.12)", boxShadow: "0 0 6px 1px rgba(23,20,14,0.12)", borderRadius: radius }} />
       {lit && (
         // light the pipe throws onto the deck underneath it
-        <div style={{ position: "absolute", left: left - 8, top: top - 8, width: w + 16, height: d + 16, borderRadius: radius + 8, background: color, opacity: intense ? 0.32 : 0.16, filter: "blur(10px)" }} />
+        <div style={{ position: "absolute", left: left - 8, top: top - 8, width: w + 16, height: d + 16, borderRadius: radius + 8, boxShadow: `0 0 12px 4px ${color}`, opacity: intense ? 0.3 : 0.15 }} />
       )}
       <Box
         w={w}
@@ -200,7 +217,7 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
           }}
         >
           {/* steady inner light, so a lit pipe reads as "on" between pulses */}
-          {lit && <div style={{ position: "absolute", ...coreLine, borderRadius: 2, background: color, opacity: 0.55, filter: "blur(1px)" }} />}
+          {lit && <div style={{ position: "absolute", ...coreLine, borderRadius: 2, background: color, opacity: 0.45 }} />}
           {lit && <div className="iso-flow" style={{ position: "absolute", inset: 0, ...flow("100%") }} />}
           {/* glass highlight on top of the glow */}
           <div
@@ -213,19 +230,6 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
           />
           {dim && <div style={{ position: "absolute", inset: 0, background: "rgba(250,249,247,0.55)" }} />}
         </div>
-        {/* bloom: the same pulse, blurred and spilling past the tube walls */}
-        {lit && (
-          <div
-            className="iso-flow"
-            style={{
-              position: "absolute",
-              inset: horizontal ? "-7px 0" : "0 -7px",
-              filter: "blur(6px)",
-              opacity: intense ? 1 : 0.85,
-              ...flow("100%"),
-            }}
-          />
-        )}
       </Box>
       {collar(...at(endA), "a")}
       {collar(...at(endB), "b")}
@@ -264,7 +268,9 @@ function linkPath(a, b) {
 // scroll), no drag/pan, no dashboard controls. `layoutSteps` sizes the
 // deck for a known final step count so the camera doesn't re-frame as
 // steps arrive.
-export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0 }) {
+// `flat` tilts the camera straight down (rotateX/Z -> 0); the transform
+// transition animates it, which is how the Graph tab morphs into its 2D view.
+export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, relatedIds = null, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0, flat = false, showLegend = true }) {
   const steps = trail.nodes.filter((n) => !n.isStart);
   const start = trail.nodes.find((n) => n.isStart);
   const L = useMemo(() => layout(Math.max(steps.length, layoutSteps)), [steps.length, layoutSteps]);
@@ -273,11 +279,11 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [hoverId, setHoverId] = useState(null);
   const [hoverCatId, setHoverCatId] = useState(null);
   const dragRef = useRef(null);
+  const sceneRef = useRef(null);
   const justDraggedRef = useRef(false);
 
   useEffect(() => {
@@ -304,21 +310,23 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
   }, [sessionKey]);
 
   // fit the projected scene (ground included) into the container
-  const rx = RX + tilt.y * 3;
-  const rz = RZ + tilt.x * 4;
+  // (no mouse-follow tilt: it re-rendered and re-rasterised the whole scene on every mousemove)
+  const rx = flat ? 0 : RX;
+  const rz = flat ? 0 : RZ;
   const gw = L.PW + GROUND_MARGIN * 2;
   const gh = L.PH + GROUND_MARGIN * 2;
   const zMax = PLAT_H + AGENT_H + 10;
-  const sinRx = Math.sin((RX * Math.PI) / 180);
-  const cosRx = Math.cos((RX * Math.PI) / 180);
-  const sinRz = Math.abs(Math.sin((RZ * Math.PI) / 180));
-  const cosRz = Math.abs(Math.cos((RZ * Math.PI) / 180));
+  const sinRx = Math.sin((rx * Math.PI) / 180);
+  const cosRx = Math.cos((rx * Math.PI) / 180);
+  const sinRz = Math.abs(Math.sin((rz * Math.PI) / 180));
+  const cosRz = Math.abs(Math.cos((rz * Math.PI) / 180));
   const projW = gw * cosRz + gh * sinRz;
   const projH = (gw * sinRz + gh * cosRz) * cosRx + zMax * sinRx;
   const fit = size.width ? Math.min(size.width / projW, size.height / projH) * 1.02 : 0.5;
   // the homepage panel is small: trim the empty ground margin a touch
   const scale = fit * zoom * (embedded ? 1.06 : 1);
   const zLift = (zMax * sinRx * scale) / 2;
+  const sceneTransform = (p) => `translate(-50%, -50%) translate(${p.x}px, ${p.y + zLift}px) scale(${scale}) rotateX(${rx}deg) rotateZ(${rz}deg)`;
 
   const catStats = useMemo(
     () =>
@@ -346,24 +354,31 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
     if (embedded) return;
     dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false };
   };
+  // While dragging, write the transform straight to the DOM (no React
+  // re-render of the whole scene per mousemove); commit to state on release.
   const onPointerMove = (e) => {
-    const rect = wrapRef.current.getBoundingClientRect();
-    if (dragRef.current) {
-      const dx = e.clientX - dragRef.current.x;
-      const dy = e.clientY - dragRef.current.y;
-      if (!dragRef.current.moved && Math.hypot(dx, dy) > 4) {
-        dragRef.current.moved = true;
-        setDragging(true);
-      }
-      if (dragRef.current.moved) setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy });
-      return;
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) > 4) {
+      d.moved = true;
+      setDragging(true);
     }
-    setTilt({ x: (e.clientX - rect.left) / rect.width - 0.5, y: (e.clientY - rect.top) / rect.height - 0.5 });
+    if (d.moved && sceneRef.current) {
+      d.cur = { x: d.px + dx, y: d.py + dy };
+      sceneRef.current.style.transform = sceneTransform(d.cur);
+    }
   };
-  const onPointerUp = (e) => {
+  const endDrag = () => {
     const d = dragRef.current;
     dragRef.current = null;
+    if (d && d.cur) setPan(d.cur);
     setDragging(false);
+    return d;
+  };
+  const onPointerUp = (e) => {
+    const d = endDrag();
     justDraggedRef.current = !!(d && d.moved);
     if (d && !d.moved && e.target === e.currentTarget) {
       onSelect(null);
@@ -384,17 +399,13 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerLeave={() => {
-        dragRef.current = null;
-        setDragging(false);
-        setTilt({ x: 0, y: 0 });
-      }}
+      onPointerLeave={endDrag}
       style={{
         position: "absolute",
         inset: 0,
         overflow: "hidden",
         cursor: embedded ? "default" : dragging ? "grabbing" : "grab",
-        background: `radial-gradient(ellipse at 50% 45%, ${T.surface} 0%, ${T.page} 55%, #f1eee7 100%)`,
+        background: `radial-gradient(ellipse at 50% 45%, ${T.surface} 0%, ${T.page} 55%, ${T.vignette} 100%)`,
         touchAction: embedded ? "auto" : "none",
         userSelect: "none",
       }}
@@ -402,6 +413,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       <style>{CSS}</style>
 
       <div
+        ref={sceneRef}
         style={{
           position: "absolute",
           left: "50%",
@@ -410,8 +422,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           height: gh,
           pointerEvents: "none",
           transformStyle: "preserve-3d",
-          transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y + zLift}px) scale(${scale}) rotateX(${rx}deg) rotateZ(${rz}deg)`,
-          transition: dragging ? "none" : "transform 600ms cubic-bezier(.2,.8,.25,1)",
+          transform: sceneTransform(pan),
+          transition: dragging ? "none" : "transform 700ms cubic-bezier(.2,.8,.25,1)",
         }}
       >
         {/* ground grid */}
@@ -453,18 +465,18 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           })}
 
           {/* platform shadow + slab */}
-          <div style={{ position: "absolute", left: 10, top: 18, width: L.W, height: L.H, background: "rgba(23,20,14,0.10)", filter: "blur(18px)", borderRadius: 12 }} />
+          <div style={{ position: "absolute", left: 10, top: 18, width: L.W, height: L.H, background: "rgba(23,20,14,0.08)", boxShadow: "0 0 24px 6px rgba(23,20,14,0.08)", borderRadius: 16 }} />
           <Box
             w={L.W}
             d={L.H}
             h={PLAT_H}
             colors={PLATFORM}
+            radius={8}
             topStyle={{
-              backgroundImage: `radial-gradient(${T.ink}26 1.2px, transparent 1.3px)`,
+              backgroundImage: `radial-gradient(${tint(T.ink, 15)} 1.2px, transparent 1.3px)`,
               backgroundSize: "18px 18px",
               backgroundPosition: "9px 9px",
-              borderRadius: 2,
-              boxShadow: `inset 0 0 0 1px ${T.ink}0d`,
+              boxShadow: `inset 0 0 0 1px ${tint(T.ink, 5)}`,
             }}
           />
 
@@ -507,15 +519,15 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
             })}
 
             {/* agent block */}
-            <div style={{ position: "absolute", left: PAD + 10, top: PAD + 16, width: CW, height: AGENT_D, background: "rgba(0,0,0,0.22)", filter: "blur(14px)" }} />
+            <div style={{ position: "absolute", left: PAD + 10, top: PAD + 16, width: CW, height: AGENT_D, background: "rgba(0,0,0,0.16)", boxShadow: "0 0 18px 4px rgba(0,0,0,0.16)", borderRadius: 12 }} />
             <Box
-              className="iso-bob"
               w={CW}
               d={AGENT_D}
               h={AGENT_H}
               colors={DARK}
+              radius={8}
               style={{ left: PAD, top: PAD }}
-              topStyle={{ borderRadius: 3, padding: 14, boxSizing: "border-box", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
+              topStyle={{ padding: 14, boxSizing: "border-box", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.08)", display: "flex", flexDirection: "column", justifyContent: "space-between" }}
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ width: 42, height: 42, borderRadius: 10, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -542,7 +554,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
               const alarm = n.severity === "critical" || n.severity === "warning";
               const meta = TOOL_META[n.event.tool];
               const dimmed = !inFocus(n);
-              const focused = !!activeCat && !dimmed;
+              // a step linked by data flow to the selected one (its cause or effect) lifts too
+              const focused = (!!activeCat && !dimmed) || (!!relatedIds && relatedIds.has(n.id));
               const lift = selected ? 18 : focused ? 14 : hovered ? 10 : 0;
               return (
                 <div
@@ -556,23 +569,23 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                       style={{ position: "absolute", inset: -6, borderRadius: 12, border: `2px solid ${status.color}`, pointerEvents: "none" }}
                     />
                   )}
-                  <div style={{ position: "absolute", left: 6, top: 10 + lift * 0.4, width: CW, height: CD, background: "rgba(23,20,14,0.14)", filter: `blur(${8 + lift * 0.4}px)`, borderRadius: 6, transition: "all 220ms" }} />
+                  <div style={{ position: "absolute", left: 6, top: 10 + lift * 0.4, width: CW, height: CD, background: "rgba(23,20,14,0.11)", boxShadow: `0 0 ${10 + lift * 0.5}px 2px rgba(23,20,14,0.11)`, borderRadius: 6, transition: "top 220ms" }} />
                   <div className="iso-card-lift" style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d", transform: `translateZ(${lift + 1}px)` }}>
                     <Box
                       w={CW}
                       d={CD}
                       h={CARD_H}
                       colors={CARD}
+                      radius={6}
                       className={(alarm || focused) && !dimmed ? "iso-glow" : undefined}
                       style={{ left: 0, top: 0, pointerEvents: "auto", cursor: "pointer", "--glow": `${status.color}${focused ? "88" : "55"}` }}
                       topStyle={{
-                        borderRadius: 4,
-                        border: `${focused ? 2 : 1.5}px solid ${selected ? T.ink : alarm || focused ? status.color : T.ink + "14"}`,
+                        border: `${focused ? 2 : 1.5}px solid ${selected ? T.ink : alarm || focused ? status.color : tint(T.ink, 8)}`,
                         boxSizing: "border-box",
                         display: "flex",
                         alignItems: "stretch",
                         overflow: "hidden",
-                        background: n.severity === "critical" ? "#fff6f5" : CARD.top,
+                        background: n.severity === "critical" ? `color-mix(in srgb, ${T.critical} 7%, ${CARD.top})` : CARD.top,
                       }}
                       onPointerEnter={() => setHoverId(n.id)}
                       onPointerLeave={() => setHoverId(null)}
@@ -626,26 +639,30 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
             const capColor = used ? color : T.inkMuted;
             return (
               <div key={c.id} style={{ position: "absolute", left: L.keyX(k), top: L.keyY, width: KEY, height: KEY, transformStyle: "preserve-3d" }}>
-                {lit && <div style={{ position: "absolute", inset: -14, borderRadius: 22, background: capColor, opacity: focusedCap ? 0.4 : 0.22, filter: "blur(16px)" }} />}
-                <div style={{ position: "absolute", left: 8, top: 12, width: KEY, height: KEY, background: "rgba(0,0,0,0.2)", filter: "blur(12px)", borderRadius: 10 }} />
+                {lit && <div style={{ position: "absolute", inset: -14, borderRadius: 22, boxShadow: `0 0 20px 8px ${capColor}`, opacity: focusedCap ? 0.35 : 0.2 }} />}
+                <div style={{ position: "absolute", left: 8, top: 12, width: KEY, height: KEY, background: "rgba(0,0,0,0.15)", boxShadow: "0 0 14px 3px rgba(0,0,0,0.15)", borderRadius: 10 }} />
                 <div className="iso-card-lift" style={{ position: "absolute", inset: 0, transformStyle: "preserve-3d", transform: `translateZ(${lit ? 13 : 1}px)` }}>
                   <Box
                     w={KEY}
                     d={KEY}
                     h={KEY_H}
                     colors={DARK}
+                    radius={10}
                     style={{ pointerEvents: "auto", cursor: "pointer" }}
                     onPointerEnter={() => setHoverCatId(c.id)}
                     onPointerLeave={() => setHoverCatId(null)}
                     onClick={() => !justDraggedRef.current && onFocusCat(focusedCap ? null : c.id)}
                     topStyle={{
-                      borderRadius: 10,
                       padding: 12,
                       boxSizing: "border-box",
                       display: "flex",
                       flexDirection: "column",
                       justifyContent: "space-between",
-                      boxShadow: lit ? `0 0 0 ${focusedCap ? 3 : 2}px ${capColor}, 0 0 28px ${capColor}aa` : "inset 0 1px 0 rgba(255,255,255,0.08)",
+                      // ring drawn INSIDE the cap: an outer spread ring makes the top face
+                      // look larger than the walls below it (an overhanging lip)
+                      boxShadow: lit
+                        ? `inset 0 0 0 ${focusedCap ? 3 : 2}px ${capColor}, 0 0 28px ${tint(capColor, 67)}`
+                        : "inset 0 1px 0 rgba(255,255,255,0.08)",
                       transition: "box-shadow 200ms",
                     }}
                   >
@@ -665,7 +682,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       </div>
 
       {/* overlay controls */}
-      {!embedded && (
+      {!embedded && showLegend && (
       <div style={{ position: "absolute", left: 14, bottom: 12, display: "flex", gap: 12, fontSize: 11, color: T.inkMuted, fontFamily: T.font, pointerEvents: "none" }}>
         {Object.entries(STATUS).map(([k, s]) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>

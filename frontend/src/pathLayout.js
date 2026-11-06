@@ -1,4 +1,4 @@
-import { eventSeverity } from "./theme.jsx";
+import { eventSeverity, sourceMeta } from "./theme.jsx";
 
 /**
  * Turns a session's tool_call events into an ordered chain (step 1 -> 2
@@ -50,9 +50,7 @@ export function buildTrail(session) {
 }
 
 function sourceLabel(source) {
-  if (source === "claude_code") return "Claude Code";
-  if (source === "api") return "API";
-  return "Toy Agent";
+  return sourceMeta(source).label;
 }
 
 function shortLabel(event) {

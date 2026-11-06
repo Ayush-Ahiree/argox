@@ -9,3 +9,8 @@ export function policiesUrl(project) {
 export function authHeaders(session) {
   return HOSTED && session ? { Authorization: `Bearer ${session.access_token}` } : {};
 }
+
+// "Was this decision right?" from the Graph's step panel.
+export function feedbackUrl(project) {
+  return HOSTED && project ? `${API_BASE}/projects/${project.id}/feedback` : `${API_BASE}/feedback`;
+}

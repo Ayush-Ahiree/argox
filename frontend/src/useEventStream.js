@@ -44,9 +44,14 @@ export function useEventStream(wsUrl, session = null) {
 
   useEffect(() => {
     const ws = new WebSocket(wsUrl);
-    ws.onopen = () => setConnected(true);
-    ws.onclose = () => setConnected(false);
-    ws.onerror = () => setConnected(false);
+    // also announce connection state app-wide so the header can show it
+    const announce = (c) => {
+      setConnected(c);
+      window.dispatchEvent(new CustomEvent("argox:ws", { detail: { connected: c } }));
+    };
+    ws.onopen = () => announce(true);
+    ws.onclose = () => announce(false);
+    ws.onerror = () => announce(false);
     ws.onmessage = (msg) => {
       const event = JSON.parse(msg.data);
       if (event.type === "confirm_request") {
@@ -62,7 +67,10 @@ export function useEventStream(wsUrl, session = null) {
         return [{ ...event, _key: key }, ...prev].slice(0, MAX_EVENTS);
       });
     };
-    return () => ws.close();
+    return () => {
+      ws.close();
+      window.dispatchEvent(new CustomEvent("argox:ws", { detail: { connected: null } }));
+    };
   }, [wsUrl]);
 
   const resolveConfirm = useCallback(

@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import Argox from "./Argox";
 import EventFeed from "./EventFeed";
 import PolicyEditor from "./PolicyEditor.jsx";
 import ConnectPanel from "./ConnectPanel.jsx";
 import LoginPage from "./LoginPage.jsx";
 import Home from "./Home.jsx";
-import { T, ArgoxLogo } from "./theme.jsx";
+import { T, ArgoxLogo, IconSun, IconMoon, applyTheme } from "./theme.jsx";
 import { API_BASE, HOSTED, WS_BASE } from "./lib/config.js";
 import { supabase } from "./lib/supabase.js";
 
@@ -21,6 +21,7 @@ export default function App() {
   const [session, setSession] = useState(HOSTED ? undefined : null);
   const [project, setProject] = useState(null);
   const [freshApiKey, setFreshApiKey] = useState(null);
+  const [policyPrefill, setPolicyPrefill] = useState(null);
   // Signed-out visitors land on the public homepage at "/"; /login and
   // /signup open the auth card (vercel.json rewrites them to index.html).
   const [authRoute, setAuthRoute] = useState(() => authRouteFromPath(window.location.pathname));
@@ -40,6 +41,17 @@ export default function App() {
   useEffect(() => {
     if (view === "connect") localStorage.setItem(CONNECT_SEEN_KEY, "1");
   }, [view]);
+
+  // other views can ask to switch tabs (e.g. the Graph's "Open Policy" fix link)
+  useEffect(() => {
+    const go = (e) => {
+      if (!e.detail || !TABS.some((t) => t.id === e.detail.view)) return;
+      if (e.detail.prefill) setPolicyPrefill({ ...e.detail.prefill }); // new object -> PolicyEditor re-applies it
+      setView(e.detail.view);
+    };
+    window.addEventListener("argox:navigate", go);
+    return () => window.removeEventListener("argox:navigate", go);
+  }, []);
 
   useEffect(() => {
     if (!HOSTED) return;
@@ -87,30 +99,80 @@ export default function App() {
       : "ws://localhost:8765";
 
   return (
-    <div style={{ height: "100vh", width: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: T.page, fontFamily: T.font }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <ArgoxLogo />
+    <div style={{ height: "100vh", width: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: T.page, color: T.ink, fontFamily: T.font }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 20, height: 52, padding: "0 20px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
+        <ArgoxLogo height={26} />
+        <TabNav view={view} onChange={setView} />
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+          <ConnectionStatus />
+          <ThemeToggle />
+          {HOSTED && (
+            <button onClick={() => supabase.auth.signOut()} style={signOutStyle}>
+              Sign out
+            </button>
+          )}
         </div>
-        <div style={{ display: "flex", gap: 4, background: T.surfaceRaised, borderRadius: 999, padding: 3 }}>
-          <TabButton label="Connect" active={view === "connect"} onClick={() => setView("connect")} />
-          <TabButton label="Feed" active={view === "feed"} onClick={() => setView("feed")} />
-          <TabButton label="Graph" active={view === "graph"} onClick={() => setView("graph")} />
-          <TabButton label="Policy" active={view === "policy"} onClick={() => setView("policy")} />
-        </div>
-        {HOSTED && (
-          <button onClick={() => supabase.auth.signOut()} style={signOutStyle}>
-            Sign out
-          </button>
-        )}
       </div>
-      <div style={{ flex: 1, minHeight: 0 }}>
+      {/* keyed on view so each tab switch remounts the wrapper and replays the enter animation */}
+      <div key={view} className="ax-view-enter" style={{ flex: 1, minHeight: 0 }}>
         {view === "connect" && <ConnectPanel project={project} apiKey={freshApiKey} onRegenerateKey={regenerateKey} />}
         {view === "feed" && <EventFeed wsUrl={wsUrl} authSession={session} />}
-        {view === "graph" && <Argox wsUrl={wsUrl} />}
-        {view === "policy" && <PolicyEditor project={project} session={session} />}
+        {view === "graph" && <Argox wsUrl={wsUrl} project={project} session={session} />}
+        {view === "policy" && <PolicyEditor project={project} session={session} prefill={policyPrefill} />}
       </div>
     </div>
+  );
+}
+
+// Fed by useEventStream's "argox:ws" window event; null = no live view
+// mounted (Connect/Policy tabs), so show nothing rather than a false
+// "Disconnected".
+function ConnectionStatus() {
+  const [connected, setConnected] = useState(null);
+  useEffect(() => {
+    const on = (e) => setConnected(e.detail.connected);
+    window.addEventListener("argox:ws", on);
+    return () => window.removeEventListener("argox:ws", on);
+  }, []);
+  if (connected === null) return null;
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, color: T.inkMuted }}>
+      <span style={{ width: 7, height: 7, borderRadius: "50%", background: connected ? T.good : T.inkMuted, boxShadow: connected ? `0 0 0 3px color-mix(in srgb, ${T.good} 20%, transparent)` : "none" }} />
+      {connected ? "Connected" : "Disconnected"}
+    </span>
+  );
+}
+
+function ThemeToggle() {
+  const [mode, setMode] = useState(() => document.documentElement.dataset.theme || "light");
+  const next = mode === "dark" ? "light" : "dark";
+  return (
+    <button
+      className="ax-btn"
+      onClick={() => {
+        applyTheme(next);
+        setMode(next);
+      }}
+      aria-label={`Switch to ${next} mode`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        height: 30,
+        padding: "0 10px",
+        borderRadius: T.radius,
+        border: `1px solid ${T.border}`,
+        background: T.surface,
+        color: T.ink,
+        fontFamily: T.font,
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: "pointer",
+      }}
+    >
+      {mode === "dark" ? <IconSun size={13} color={T.ink} /> : <IconMoon size={13} color={T.ink} />}
+      {mode === "dark" ? "Light" : "Dark"}
+    </button>
   );
 }
 
@@ -148,20 +210,79 @@ function Centered({ children }) {
   );
 }
 
-function TabButton({ label, active, onClick }) {
+const TABS = [
+  { id: "connect", label: "Connect" },
+  { id: "feed", label: "Feed" },
+  { id: "graph", label: "Graph" },
+  { id: "policy", label: "Policy" },
+];
+
+// Segmented tab bar with a single highlight that slides to the active tab
+// (measured from the real button, so it follows font loading / label width).
+function TabNav({ view, onChange }) {
+  const refs = useRef({});
+  const [box, setBox] = useState(null);
+
+  useLayoutEffect(() => {
+    // `live` guards the async fonts.ready callback: without it, the previous
+    // tab's effect re-measures after this one and pulls the highlight back.
+    let live = true;
+    const measure = () => {
+      const el = refs.current[view];
+      if (live && el) setBox({ left: el.offsetLeft, width: el.offsetWidth });
+    };
+    measure();
+    document.fonts?.ready.then(measure);
+    window.addEventListener("resize", measure);
+    return () => {
+      live = false;
+      window.removeEventListener("resize", measure);
+    };
+  }, [view]);
+
+  return (
+    <nav style={{ position: "relative", display: "flex", gap: 2, padding: 3, borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.page }}>
+      {box && (
+        <span
+          className="ax-tab-indicator"
+          aria-hidden
+          style={{
+            position: "absolute",
+            top: 3,
+            bottom: 3,
+            left: 0,
+            width: box.width,
+            transform: `translateX(${box.left}px)`,
+            borderRadius: T.radiusSm,
+            background: T.surface,
+            boxShadow: `inset 0 0 0 1px ${T.border}, ${T.shadow}`,
+          }}
+        />
+      )}
+      {TABS.map((t) => (
+        <TabButton key={t.id} label={t.label} active={view === t.id} onClick={() => onChange(t.id)} buttonRef={(el) => (refs.current[t.id] = el)} />
+      ))}
+    </nav>
+  );
+}
+
+function TabButton({ label, active, onClick, buttonRef }) {
   return (
     <button
+      ref={buttonRef}
       onClick={onClick}
       style={{
-        background: active ? T.page : "transparent",
+        position: "relative",
+        background: "transparent",
         color: active ? T.ink : T.inkMuted,
         border: "none",
-        borderRadius: 999,
+        borderRadius: T.radiusSm,
         padding: "5px 14px",
-        fontSize: 12,
+        fontFamily: T.font,
+        fontSize: 12.5,
         fontWeight: 600,
         cursor: "pointer",
-        transition: "background 120ms ease, color 120ms ease",
+        transition: "color 160ms ease",
       }}
     >
       {label}
@@ -170,13 +291,13 @@ function TabButton({ label, active, onClick }) {
 }
 
 const signOutStyle = {
-  marginLeft: "auto",
   background: "transparent",
   border: "none",
   color: T.inkMuted,
+  fontFamily: T.font,
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
   textDecoration: "underline",
+  textUnderlineOffset: 3,
 };
-

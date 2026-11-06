@@ -20,8 +20,45 @@ export function deriveHeadline(events) {
       return first.target;
     }
   }
+  // commands aren't paths -- "git log -- app.py" shouldn't collapse to "app.py"
+  if (first.tool === "run_shell") return first.target.trim().replace(/\s+/g, " ");
   const parts = first.target.split("/");
   return parts[parts.length - 1] || first.target;
+}
+
+export function formatDuration(seconds) {
+  if (!seconds || seconds < 1) return "<1s";
+  const s = Math.round(seconds);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+// A pending_confirm tool_call is later followed by a confirm_resolution
+// for the same tool+target once a human answers. Returns the set of
+// pending tool_call events that have NOT been answered yet.
+export function unresolvedPending(evts) {
+  const resolutions = evts.filter((e) => e.type === "confirm_resolution").sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  const used = new Set();
+  const open = new Set();
+  const pendings = evts.filter((e) => e.type === "tool_call" && e.decision === "pending_confirm").sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  for (const p of pendings) {
+    const r = resolutions.find((r) => !used.has(r) && r.tool === p.tool && r.target === p.target && (r.ts || 0) >= (p.ts || 0));
+    if (r) used.add(r);
+    else open.add(p);
+  }
+  return open;
+}
+
+// The confirm_resolution that answered a given pending tool_call, if any.
+export function resolutionFor(event, evts) {
+  if (event.decision !== "pending_confirm") return null;
+  return (
+    evts
+      .filter((e) => e.type === "confirm_resolution" && e.tool === event.tool && e.target === event.target && (e.ts || 0) >= (event.ts || 0))
+      .sort((a, b) => (a.ts || 0) - (b.ts || 0))[0] || null
+  );
 }
 
 export function timeAgo(ts) {
@@ -41,25 +78,39 @@ export function groupBySession(events) {
     if (!bySession.has(sid)) bySession.set(sid, []);
     bySession.get(sid).push(e);
   }
+  // policy reasons that mean "sensitive data tried to leave" vs "acted after
+  // reading outside content" (agent/policy.py)
+  const LEAK_REASONS = ["secret_data_exfil_attempt", "secret_session_publish", "pii_crossing_trust_boundary", "internal_data_crossing_trust_boundary"];
+  const hasReason = (e, list) => e.type === "tool_call" && (e.reasons || []).some((r) => list.includes(r));
   const sessions = Array.from(bySession.entries()).map(([sessionId, evts]) => {
+    // blocked includes human denials (confirm_resolution with decision "block")
     const blocked = evts.filter((e) => e.decision === "block").length;
-    const asked = evts.filter((e) => e.decision === "pending_confirm").length;
+    const asked = unresolvedPending(evts).size;
+    const approved = evts.filter((e) => e.type === "confirm_resolution" && e.decision === "allow").length;
     const flagged = evts.filter((e) => e.decision === "allow" && (e.risk_score || 0) > 0).length;
     let severity = "clean";
     if (blocked > 0) severity = "critical";
     else if (asked > 0) severity = "warning";
     else if (flagged > 0) severity = "flagged";
+    const times = evts.map((e) => e.ts || 0).filter(Boolean);
     return {
       sessionId,
       events: evts,
       blocked,
       asked,
+      approved,
       flagged,
+      // tool calls where sensitive data tried to leave the trust boundary
+      leaks: evts.filter((e) => hasReason(e, LEAK_REASONS)).length,
+      // outbound calls made after reading outside content (prompt-injection pattern)
+      injection: evts.filter((e) => hasReason(e, ["untrusted_content_then_egress"])).length,
       severity,
       source: sessionSource(evts),
       headline: deriveHeadline(evts),
       total: evts.length,
-      lastTs: Math.max(...evts.map((e) => e.ts || 0)),
+      toolCalls: evts.filter((e) => e.type === "tool_call").length,
+      firstTs: times.length ? Math.min(...times) : 0,
+      lastTs: times.length ? Math.max(...times) : 0,
     };
   });
   sessions.sort((a, b) => b.lastTs - a.lastTs);
