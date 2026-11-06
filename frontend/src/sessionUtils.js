@@ -78,6 +78,10 @@ export function groupBySession(events) {
     if (!bySession.has(sid)) bySession.set(sid, []);
     bySession.get(sid).push(e);
   }
+  // policy reasons that mean "sensitive data tried to leave" vs "acted after
+  // reading outside content" (agent/policy.py)
+  const LEAK_REASONS = ["secret_data_exfil_attempt", "secret_session_publish", "pii_crossing_trust_boundary", "internal_data_crossing_trust_boundary"];
+  const hasReason = (e, list) => e.type === "tool_call" && (e.reasons || []).some((r) => list.includes(r));
   const sessions = Array.from(bySession.entries()).map(([sessionId, evts]) => {
     // blocked includes human denials (confirm_resolution with decision "block")
     const blocked = evts.filter((e) => e.decision === "block").length;
@@ -96,6 +100,10 @@ export function groupBySession(events) {
       asked,
       approved,
       flagged,
+      // tool calls where sensitive data tried to leave the trust boundary
+      leaks: evts.filter((e) => hasReason(e, LEAK_REASONS)).length,
+      // outbound calls made after reading outside content (prompt-injection pattern)
+      injection: evts.filter((e) => hasReason(e, ["untrusted_content_then_egress"])).length,
       severity,
       source: sessionSource(evts),
       headline: deriveHeadline(evts),

@@ -40,6 +40,8 @@ import { buildTrail } from "./pathLayout.js";
 
 const STATUS_FILTERS = [
   { value: "all", label: "All" },
+  // the sessions a security reviewer opens first: sensitive data tried to leave
+  { value: "leaks", label: "Data leaving", color: T.critical },
   { value: "asked", label: "Needs approval", color: T.warning },
   { value: "blocked", label: "Blocked", color: T.critical },
   { value: "flagged", label: "Flagged", color: T.flagged },
@@ -469,6 +471,8 @@ function formatShortTime(ts) {
 function SessionBadges({ session }) {
   const badges = [];
   if (session.asked) badges.push({ key: "asked", text: `${session.asked} needs approval`, s: STATUS.warning });
+  if (session.leaks) badges.push({ key: "leaks", text: `${session.leaks} tried to send sensitive data`, s: STATUS.critical });
+  if (session.injection) badges.push({ key: "injection", text: "Possible prompt injection", s: STATUS.flagged });
   if (session.blocked) badges.push({ key: "blocked", text: `${session.blocked} blocked`, s: STATUS.critical });
   if (session.flagged) badges.push({ key: "flagged", text: `${session.flagged} flagged`, s: STATUS.flagged });
   if (session.approved) badges.push({ key: "approved", text: `${session.approved} approved`, s: STATUS.approved });

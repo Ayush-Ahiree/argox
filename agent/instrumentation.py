@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, NonRecordingSpan, set_span_in_context, SpanKind
 
-from policy import classify_content, evaluate_call, script_network_reach, Decision, PolicyResult, Tag
+from policy import classify_content, evaluate_call, script_network_reach, trusted_scope, get_rule_toggles, Decision, PolicyResult, Tag
 
 tracer = trace.get_tracer("argox")
 
@@ -37,6 +37,11 @@ class TaintContext:
         # {basename: reaches_external} for files this session wrote that
         # contain network code, so running one later counts as network use
         self.network_scripts = {}
+        self.last_active = time.time()
+        # set when this session started holding another session's taint
+        # (see get_taint_context's carry-over)
+        self.inherited_from = None
+        self.inherited_tags = []
 
     def absorb(self, tags: set):
         self.active_tags |= tags
@@ -107,8 +112,18 @@ taint_ctx = TaintContext()
 _session_contexts = {}
 _session_contexts_lock = threading.Lock()
 
+# Session carry-over. Claude Code starts a NEW session_id on /clear, a
+# restart, and some resumes -- so a secret read in session A used to be
+# forgotten the moment the user (or an attacker-steered agent) moved to
+# session B in the same folder, and B could send it out unchecked. The
+# "lineage" is the agent's working directory; a new session in the same
+# project + folder within the window inherits A's sensitive tags.
+CARRYOVER_WINDOW_S = 30 * 60
+_CARRY_TAGS = {Tag.SECRET, Tag.PII, Tag.INTERNAL_ONLY}
+_lineage_latest = {}  # (project_id, lineage) -> most recently active TaintContext
 
-def get_taint_context(session_id: str = None, project_id: str = None) -> TaintContext:
+
+def get_taint_context(session_id: str = None, project_id: str = None, lineage: str = None, carryover: bool = False) -> TaintContext:
     """project_id: the hosted backend (agent/main.py) serves many tenants
     from one process, same reason hook_server.py already needed per-session
     isolation below -- without this, two different customers' sessions
@@ -119,10 +134,23 @@ def get_taint_context(session_id: str = None, project_id: str = None) -> TaintCo
     if not session_id:
         return taint_ctx
     key = (project_id, session_id)
+    now = time.time()
     with _session_contexts_lock:
-        if key not in _session_contexts:
-            _session_contexts[key] = TaintContext(session_id=session_id)
-        return _session_contexts[key]
+        ctx = _session_contexts.get(key)
+        if ctx is None:
+            ctx = TaintContext(session_id=session_id)
+            prev = _lineage_latest.get((project_id, lineage)) if lineage else None
+            if carryover and prev is not None and prev.session_id != session_id and now - prev.last_active <= CARRYOVER_WINDOW_S:
+                carried = {t for t in prev.active_tags if t in _CARRY_TAGS}
+                if carried:
+                    ctx.active_tags |= carried
+                    ctx.inherited_from = prev.session_id
+                    ctx.inherited_tags = sorted(t.value for t in carried)
+            _session_contexts[key] = ctx
+        if lineage:
+            _lineage_latest[(project_id, lineage)] = ctx
+        ctx.last_active = now
+        return ctx
 
 
 RELAY_INGEST_URL = "http://localhost:8766/event"
@@ -201,6 +229,8 @@ def precheck(
     rule_toggles: dict = None,
     publish_fn=None,
     source: str = "claude_code",
+    trusted_domains: list = None,
+    lineage: str = None,
 ) -> PolicyResult:
     """Decision + telemetry only, no execution — for callers that don't run
     the tool themselves (the Claude Code PreToolUse hook adapter: Claude
@@ -233,8 +263,20 @@ def precheck(
     and in the published event so the dashboard (sessionUtils.js,
     pathLayout.js) can label sessions correctly instead of every
     non-Claude caller falling into the "claude_code"/"toy_agent" binary.
+
+    trusted_domains: the project's trusted destinations (hosted backend);
+    omitted -> local policies.json. lineage: the agent's working directory,
+    for session carry-over (see get_taint_context).
     """
-    ctx = get_taint_context(session_id, project_id=project_id)
+    toggles = rule_toggles if rule_toggles is not None else get_rule_toggles()
+    if trusted_domains is None:
+        return _precheck(tool_name, target, params, override_reason, session_id, project_id, deny_path_patterns, rule_toggles, publish_fn, source, lineage, toggles)
+    with trusted_scope(trusted_domains):
+        return _precheck(tool_name, target, params, override_reason, session_id, project_id, deny_path_patterns, rule_toggles, publish_fn, source, lineage, toggles)
+
+
+def _precheck(tool_name, target, params, override_reason, session_id, project_id, deny_path_patterns, rule_toggles, publish_fn, source, lineage, toggles):
+    ctx = get_taint_context(session_id, project_id=project_id, lineage=lineage, carryover=toggles.get("session_taint_carryover", True))
     publish = publish_fn or broadcast
 
     if override_reason:
@@ -284,6 +326,7 @@ def precheck(
             "trace_id": _trace_id_hex(ctx),
             "ts": time.time(),
             "source": source,
+            **({"inherited_from": ctx.inherited_from, "inherited_tags": ctx.inherited_tags} if ctx.inherited_from else {}),
         })
 
     return policy_result
@@ -368,7 +411,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     return None  # genuine timeout -- relay was reachable, nobody answered
 
 
-def record_tool_output(tool_name: str, target: str, output_text: str, source_hint: str = "", session_id: str = None, project_id: str = None, publish_fn=None):
+def record_tool_output(tool_name: str, target: str, output_text: str, source_hint: str = "", session_id: str = None, project_id: str = None, publish_fn=None, trusted_domains: list = None, lineage: str = None):
     """Call after a tool executes successfully: classify the OUTPUT and
     absorb any new taint tags into the session context so downstream
     tool calls inherit them (this is the propagation step).
@@ -384,10 +427,16 @@ def record_tool_output(tool_name: str, target: str, output_text: str, source_hin
     showed up anywhere but our own WebSocket stream. Now it's a real
     span, linked into the same per-session trace as the tool-call spans.
 
-    project_id / publish_fn: see precheck()."""
-    ctx = get_taint_context(session_id, project_id=project_id)
+    project_id / publish_fn / trusted_domains / lineage: see precheck().
+    Output from outside the trust boundary (web, APIs, MCP tools, network
+    commands) is also tagged UNTRUSTED -- see policy.untrusted_source."""
+    ctx = get_taint_context(session_id, project_id=project_id, lineage=lineage)
     publish = publish_fn or broadcast
-    result = classify_content(output_text, source_hint=source_hint)
+    if trusted_domains is None:
+        result = classify_content(output_text, source_hint=source_hint or target, tool_name=tool_name)
+    else:
+        with trusted_scope(trusted_domains):
+            result = classify_content(output_text, source_hint=source_hint or target, tool_name=tool_name)
 
     with tracer.start_as_current_span("taint.classify", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)

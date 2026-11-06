@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { T, tint, STATUS, IconClaude, IconBot } from "./theme.jsx";
 import { CATEGORIES } from "./IsoTrail.jsx";
-import { SENSITIVE_TAGS, TAG_INFO } from "./taintFlow.js";
+import { HELD_TAGS, TAG_INFO } from "./taintFlow.js";
 
 /**
  * Flat "swim lane" view of a session for the Graph tab (the 2D half of
@@ -45,7 +45,7 @@ const SEV_WORD = { approved: "approved", flagged: "flagged", warning: "awaiting 
 
 const PAD_X = 24;
 const NUM_W = 36; // step numbers
-const BAND_W = 30; // "held" band
+const BAND_W = 36; // "held" band
 const STEP_COL = NUM_W + BAND_W + 4;
 const LANE_GAP = 10;
 const HEADER_H = 64; // sticky lane headers
@@ -243,7 +243,7 @@ export default function TwoDTrail({ trail, analysis, sessionKey, selectedId, rel
           {/* lane headers */}
           <div style={{ position: "sticky", top: 0, zIndex: 4, height: HEADER_H, background: `linear-gradient(${T.page} 82%, transparent)` }}>
             <div style={{ position: "absolute", left: 0, top: 30, fontSize: 9.5, fontWeight: 600, letterSpacing: 0.6, color: T.inkMuted, fontFamily: T.fontMono }}>STEP</div>
-            <div title="Sensitive data the session is holding" style={{ position: "absolute", left: NUM_W, top: 30, fontSize: 9.5, fontWeight: 600, letterSpacing: 0.6, color: T.inkMuted, fontFamily: T.fontMono }}>HELD</div>
+            <div title="What the session is holding: secret / personal / internal-only data, and untrusted outside content" style={{ position: "absolute", left: NUM_W, top: 30, fontSize: 9.5, fontWeight: 600, letterSpacing: 0.6, color: T.inkMuted, fontFamily: T.fontMono }}>HELD</div>
             {laneStats.map((c) => {
               const focused = focusCat === c.id;
               const sevColor = c.count ? STATUS[c.worst].ink : T.inkMuted;
@@ -336,7 +336,7 @@ export default function TwoDTrail({ trail, analysis, sessionKey, selectedId, rel
 
             {/* held band */}
             <svg width={BAND_W} height={bodyH} style={{ position: "absolute", left: NUM_W, top: 0, overflow: "visible", pointerEvents: "none" }}>
-              {SENSITIVE_TAGS.map((tag, k) => {
+              {HELD_TAGS.map((tag, k) => {
                 const x = 6 + k * 7;
                 return band.map((b) => {
                   if (!b.after.includes(tag)) return null;
@@ -495,7 +495,7 @@ export default function TwoDTrail({ trail, analysis, sessionKey, selectedId, rel
                     <span style={{ fontSize: 12, fontWeight: 600, color: T.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>{stepTitle(n.event)}</span>
                     {brought.map((t) => (
                       <span key={t} title={`This step brought ${TAG_INFO[t].label.toLowerCase()} data into the session`} style={{ flexShrink: 0, fontSize: 9.5, fontWeight: 700, padding: "1px 5px", borderRadius: 3, color: TAG_INFO[t].color, background: tint(TAG_INFO[t].color, 14) }}>
-                        + {TAG_INFO[t].label}
+                        + {TAG_INFO[t].short}
                       </span>
                     ))}
                     <st.Icon size={13} color={st.color} style={{ flexShrink: 0 }} />
@@ -545,7 +545,7 @@ export default function TwoDTrail({ trail, analysis, sessionKey, selectedId, rel
                   boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
                 }}
               >
-                {TAG_INFO[f.tag].label} data
+                {f.tag === "untrusted" ? TAG_INFO[f.tag].label : `${TAG_INFO[f.tag].label} data`}
               </span>
             ))}
           </div>

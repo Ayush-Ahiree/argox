@@ -141,6 +141,7 @@ export const TAG_LABELS = {
   secret: "Secret",
   internal_only: "Internal Only",
   user_uploaded: "User Uploaded",
+  untrusted: "Untrusted input",
   // "public" is intentionally omitted -- showing it teaches the user nothing
 };
 
@@ -150,6 +151,8 @@ const REASON_LABELS = {
   pii_crossing_trust_boundary: "Would send personal information outside the system",
   internal_data_crossing_trust_boundary: "Would send internal-only data outside the system",
   external_destination_untainted: "New external destination — allowed, flagged for review",
+  untrusted_content_then_egress: "Outbound call after reading outside content — possible prompt injection, flagged for review",
+  secret_session_publish: "Publishing while the session holds secret data — asks first",
 };
 
 export function humanReason(reason) {

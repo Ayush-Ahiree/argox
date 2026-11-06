@@ -10,32 +10,38 @@
  */
 
 export const SENSITIVE_TAGS = ["secret", "pii", "internal_only"];
+// what the "held" band tracks: sensitive data, plus outside content that
+// may carry injected instructions (policy.py Tag.UNTRUSTED)
+export const HELD_TAGS = [...SENSITIVE_TAGS, "untrusted"];
 
 export const TAG_INFO = {
-  secret: { label: "Secret", color: "#d93b3b" },
-  pii: { label: "Personal info", color: "#8b5cf6" },
-  internal_only: { label: "Internal only", color: "#f0a818" },
+  secret: { label: "Secret", short: "Secret", color: "#d93b3b" },
+  pii: { label: "Personal info", short: "PII", color: "#8b5cf6" },
+  internal_only: { label: "Internal only", short: "Internal", color: "#f0a818" },
+  untrusted: { label: "Untrusted input", short: "Untrusted", color: "#0ea5e9" },
 };
 
 // policy.py reason -> the taint tag that triggered it
 const REASON_TAG = {
   secret_data_exfil_attempt: "secret",
+  secret_session_publish: "secret",
   pii_crossing_trust_boundary: "pii",
   internal_data_crossing_trust_boundary: "internal_only",
+  untrusted_content_then_egress: "untrusted",
 };
 
 export function analyzeTrail(trail) {
   const steps = trail.nodes.filter((n) => n.event);
   const byId = new Map();
   const holding = new Map(); // node id -> tags the session held when this step ran
-  const introducers = { secret: [], pii: [], internal_only: [] };
+  const introducers = Object.fromEntries(HELD_TAGS.map((t) => [t, []]));
   let held = [];
 
   for (const n of steps) {
     // what the session carried going INTO this step (the policy checks this)
-    const inherited = (n.event.tags || []).filter((t) => SENSITIVE_TAGS.includes(t));
+    const inherited = (n.event.tags || []).filter((t) => HELD_TAGS.includes(t));
     const before = [...new Set([...held, ...inherited])];
-    const brought = (n.introducedTags || []).filter((t) => SENSITIVE_TAGS.includes(t));
+    const brought = (n.introducedTags || []).filter((t) => HELD_TAGS.includes(t));
     held = [...new Set([...before, ...brought])];
     holding.set(n.id, { before, after: held, brought });
     brought.forEach((t) => introducers[t].push(n));
@@ -77,31 +83,59 @@ export function explainStep(node, analysis) {
   const asked = e.decision === "pending_confirm";
   out.verdict = blocked ? "Blocked before it ran" : asked ? "Paused for your approval" : node.severity === "flagged" ? "Allowed, flagged for review" : null;
 
+  const inheritedFrom = e.inherited_from;
   for (const r of reasons) {
     const tag = REASON_TAG[r];
-    if (tag) {
+    if (tag === "untrusted") {
+      const src = causes.find((c) => c.tag === "untrusted")?.sources || [];
+      out.why.push(
+        `Earlier in this session the agent read content from outside${src.length ? ` (step ${src.map((s) => s.step).join(", ")})` : ""}. Web pages, API responses and tool results can hide instructions aimed at the agent (prompt injection), and this call then sends data to ${dest || "an outside destination"}.`
+      );
+      out.why.push("Nothing sensitive was being held, so it was allowed and flagged for you to review.");
+      out.fixes.push({ text: "If you expected this call, no action needed — mark it as correct below." });
+      out.fixes.push({ text: "If you didn't, open the earlier step's content and look for text telling the agent what to do; stop the session if you find it." });
+    } else if (tag) {
       const label = TAG_INFO[tag].label.toLowerCase();
-      out.why.push(`The session was holding ${label} data, and this call sends data to ${dest || "a destination"} outside your trust boundary.`);
+      out.why.push(
+        r === "secret_session_publish"
+          ? "The session was holding secret data, and this publishes to your remote (git push, a PR). That's normal work, so it asks rather than blocks."
+          : `The session was holding ${label} data, and this call sends data to ${dest || "a destination"} outside your trust boundary.`
+      );
       if (!causes.find((c) => c.tag === tag)?.sources.length) {
-        out.why.push(`The ${label} data was picked up before this session's first recorded step (earlier context, or a different session ID).`);
+        out.why.push(
+          inheritedFrom
+            ? `The ${label} data was carried over from an earlier session in the same folder (${String(inheritedFrom).slice(0, 8)}…), started within the last 30 minutes — e.g. before a /clear or restart.`
+            : `The ${label} data was picked up before this session's first recorded step.`
+        );
       }
+      if (dest && r !== "secret_session_publish") {
+        out.fixes.push({
+          text: `Only if you own ${dest} (your own API, not a paste site or webhook catcher): add it as a trusted destination.`,
+          action: { label: `Trust ${dest}…`, prefill: { trustDomain: dest } },
+        });
+      }
+      const src = causes.find((c) => c.tag === tag)?.sources[0];
+      const file = src && (src.event.tool === "read_file" || src.event.tool === "write_file") ? String(src.event.target || "").split("/").pop() : null;
       out.fixes.push({
-        text: `If ${dest || "this destination"} is legitimate, it has to be a trusted destination. Trusted destinations are set in the backend today (agent/policy.py, ALLOWLISTED_DOMAINS), not yet from the dashboard.`,
+        text: file ? `If the agent should never read ${file}, protect it so the read is blocked next time.` : "If the agent should never have read that data, protect its path so the read is blocked next time.",
+        action: { label: "Protect path…", prefill: file ? { protectPath: file } : {} },
       });
-      out.fixes.push({ text: "If the agent should never have read that file, add its path to Protected paths so the read is blocked next time.", policy: true });
     } else if (r === "external_destination_untainted") {
       out.why.push(`${dest || "This destination"} is new and outside your trust boundary. Nothing sensitive was being held, so it was allowed and flagged so you can review it.`);
       out.fixes.push({ text: "No action needed if you expected this call." });
     } else if (r === "dangerous_shell_pattern") {
       out.why.push("The command matches a known dangerous pattern (e.g. recursive delete, piping a download into a shell).");
-      out.fixes.push({ text: "If this was intended, run it yourself rather than through the agent, or turn off the dangerous-command rule in Policy.", policy: true });
+      out.fixes.push({ text: "If this was intended, run it yourself rather than through the agent, or turn off the dangerous-command rule in Policy.", action: { label: "Open Policy" } });
     } else if (r.startsWith("path_denylist:")) {
       const pattern = r.split(":").pop();
       out.why.push(`This touches a protected path (matches ${pattern}).`);
-      out.fixes.push({ text: `If the agent legitimately needs it, remove or narrow the "${pattern}" pattern in Policy.`, policy: true });
+      out.fixes.push({ text: `If the agent legitimately needs it, remove or narrow the "${pattern}" pattern in Policy.`, action: { label: "Open Policy" } });
     }
   }
   if (!out.why.length && node.severity !== "clean") out.why.push(reasons.length ? reasons.join(", ") : "Flagged by policy.");
+  if (inheritedFrom && !reasons.some((r) => REASON_TAG[r]) && node.step === 1) {
+    out.why.push(`This session started holding ${(e.inherited_tags || []).map((t) => TAG_INFO[t]?.label.toLowerCase() || t).join(", ")} data carried over from an earlier session in the same folder.`);
+  }
   return out;
 }
 

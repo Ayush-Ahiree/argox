@@ -18,11 +18,18 @@ const EXAMPLE_PATTERNS = [
  * policies.json -- both front-ends (toy agent + Claude Code hook) read
  * the same file, so an edit here applies to both immediately, no restart.
  */
-export default function PolicyEditor({ project = null, session = null }) {
+// prefill: { trustDomain?, protectPath? } -- set when the Graph's "how to
+// fix" sends you here, so the value is typed in and waiting for review
+// (never saved automatically: trusting a host lets secrets go to it).
+export default function PolicyEditor({ project = null, session = null, prefill = null }) {
   const [patterns, setPatterns] = useState(null);
+  const [trusted, setTrusted] = useState(null);
+  const [newDomain, setNewDomain] = useState(prefill?.trustDomain || "");
+  const trustedRef = useRef(null);
+  const patternsRef = useRef(null);
   const [toggles, setToggles] = useState(null);
   const [toggleLabels, setToggleLabels] = useState({});
-  const [newPattern, setNewPattern] = useState("");
+  const [newPattern, setNewPattern] = useState(prefill?.protectPath || "");
   const [status, setStatus] = useState("loading"); // loading | ready | error | saving
   const [error, setError] = useState(null);
   // Transient inline feedback after an add/remove/duplicate, distinct from
@@ -44,6 +51,7 @@ export default function PolicyEditor({ project = null, session = null }) {
         setPatterns(data.deny_path_patterns || []);
         setToggles(data.rule_toggles || {});
         setToggleLabels(data.rule_toggle_labels || {});
+        setTrusted(data.trusted_domains || []);
         setStatus("ready");
       })
       .catch((e) => {
@@ -56,6 +64,15 @@ export default function PolicyEditor({ project = null, session = null }) {
     load();
   }, [load]);
 
+  // arriving from the Graph with a prefill: bring that section into view
+  useEffect(() => {
+    if (!prefill) return;
+    if (prefill.trustDomain) setNewDomain(prefill.trustDomain);
+    if (prefill.protectPath) setNewPattern(prefill.protectPath);
+    const el = (prefill.trustDomain ? trustedRef : patternsRef).current;
+    if (el && status === "ready") el.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [prefill, status]);
+
   const save = useCallback(
     (body, applyLocal) => {
       setStatus("saving");
@@ -64,8 +81,15 @@ export default function PolicyEditor({ project = null, session = null }) {
         headers: { "Content-Type": "application/json", ...authHeaders(session) },
         body: JSON.stringify(body),
       })
-        .then((r) => r.json())
-        .then((data) => {
+        .then(async (r) => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            // e.g. 503 "run migration 002 first": say what's wrong, keep the page usable
+            setStatus("ready");
+            flash("error", data.detail || data.error || `Save failed (${r.status})`);
+            load();
+            return;
+          }
           applyLocal(data);
           setStatus("ready");
         })
@@ -74,7 +98,7 @@ export default function PolicyEditor({ project = null, session = null }) {
           setStatus("error");
         });
     },
-    [project, session]
+    [project, session, flash, load]
   );
 
   const addPattern = (raw) => {
@@ -99,6 +123,30 @@ export default function PolicyEditor({ project = null, session = null }) {
     save({ deny_path_patterns: next }, (data) => {
       setPatterns(data.deny_path_patterns || next);
       flash("info", `Removed "${p}" — no longer blocked.`);
+    });
+  };
+
+  const addDomain = () => {
+    const d = newDomain.trim();
+    if (!d || !trusted) return;
+    const next = [...trusted, d];
+    save({ trusted_domains: next }, (data) => {
+      const saved = data.trusted_domains || [];
+      setTrusted(saved);
+      if (saved.length === trusted.length) flash("info", `"${d}" isn't a valid host (or is already trusted) — nothing changed.`);
+      else {
+        setNewDomain("");
+        flash("success", `Trusting ${saved[saved.length - 1]} — sensitive data may now be sent there.`);
+      }
+    });
+  };
+
+  const removeDomain = (d) => {
+    if (!trusted) return;
+    const next = trusted.filter((x) => x !== d);
+    save({ trusted_domains: next }, (data) => {
+      setTrusted(data.trusted_domains || next);
+      flash("info", `${d} is no longer trusted.`);
     });
   };
 
@@ -164,7 +212,7 @@ export default function PolicyEditor({ project = null, session = null }) {
           </div>
         </div>
 
-        <div style={cardStyle}>
+        <div style={cardStyle} ref={patternsRef}>
           <SectionHeading>2 · Path denylist</SectionHeading>
           <div style={{ fontSize: 13, color: T.inkSecondary, marginBottom: 14, lineHeight: 1.5 }}>
             Any file whose path matches a pattern below is blocked outright — always, regardless of the rules
@@ -242,8 +290,8 @@ export default function PolicyEditor({ project = null, session = null }) {
                 padding: "7px 10px",
                 marginBottom: 12,
                 borderRadius: 6,
-                background: feedback.kind === "success" ? tint(T.accent, 8) : tint(T.inkMuted, 8),
-                color: feedback.kind === "success" ? T.accent : T.inkSecondary,
+                background: feedback.kind === "success" ? tint(T.accent, 8) : feedback.kind === "error" ? tint(T.critical, 10) : tint(T.inkMuted, 8),
+                color: feedback.kind === "success" ? T.accent : feedback.kind === "error" ? T.criticalInk : T.inkSecondary,
               }}
             >
               {feedback.text}
@@ -284,6 +332,75 @@ export default function PolicyEditor({ project = null, session = null }) {
                       cursor: "pointer",
                       padding: "4px 8px",
                     }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+          </div>
+        </div>
+
+        <div style={cardStyle} ref={trustedRef}>
+          <SectionHeading>3 · Trusted destinations</SectionHeading>
+          <div style={{ fontSize: 13, color: T.inkSecondary, marginBottom: 12, lineHeight: 1.5 }}>
+            Hosts inside your trust boundary, like your own APIs. Calls to them aren't treated as data leaving: a
+            session holding secrets or personal data <strong>can send it here</strong>, and they aren't flagged as new
+            destinations. Use <code>*.example.com</code> for every subdomain (it doesn't include{" "}
+            <code>example.com</code> itself). localhost and 127.0.0.1 are always trusted.
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 10px", marginBottom: 12, borderRadius: 6, background: tint(T.warning, 10), border: `1px solid ${tint(T.warning, 35)}`, fontSize: 12.5, color: T.warningInk, lineHeight: 1.45 }}>
+            <IconAlert size={14} color={T.warning} />
+            Only add hosts you control or fully trust. A host an agent was steered to (a paste site, a webhook catcher)
+            is exactly what this protection exists to stop.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+            <input
+              value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addDomain()}
+              placeholder="e.g. api.mycompany.com, *.internal.mycompany.com"
+              style={{
+                flex: 1,
+                padding: "9px 12px",
+                borderRadius: 6,
+                border: `1px solid ${prefill?.trustDomain && newDomain ? T.warning : T.borderStrong}`,
+                background: T.surface,
+                color: T.ink,
+                fontSize: 13,
+                fontFamily: T.fontMono,
+                outline: "none",
+              }}
+            />
+            <button
+              onClick={addDomain}
+              disabled={!newDomain.trim() || status === "saving"}
+              style={{
+                padding: "9px 18px",
+                borderRadius: 6,
+                border: "none",
+                background: T.accent,
+                color: T.onAccent,
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: newDomain.trim() ? "pointer" : "default",
+                opacity: newDomain.trim() ? 1 : 0.5,
+              }}
+            >
+              Trust
+            </button>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {trusted && trusted.length === 0 && (
+              <div style={{ fontSize: 13, color: T.inkMuted, fontStyle: "italic" }}>No trusted destinations yet — every outside host is checked.</div>
+            )}
+            {trusted &&
+              trusted.map((d) => (
+                <div key={d} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderRadius: 6, background: T.surface, border: `1px solid ${T.border}` }}>
+                  <code style={{ fontSize: 13, fontFamily: T.fontMono }}>{d}</code>
+                  <button
+                    onClick={() => removeDomain(d)}
+                    disabled={status === "saving"}
+                    style={{ background: "transparent", border: "none", color: T.critical, fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "4px 8px" }}
                   >
                     Remove
                   </button>

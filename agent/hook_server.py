@@ -26,17 +26,23 @@ Claude Code HTTP hook contract (see code.claude.com/docs/hooks):
 
 import json
 import os
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from feedback import clean_feedback
 from instrumentation import precheck, record_tool_output, record_confirm_resolution, web_confirm
 from policy import (
     Decision,
     RULE_TOGGLE_LABELS,
     get_deny_path_patterns,
     get_rule_toggles,
+    get_trusted_domains,
     set_deny_path_patterns,
     set_rule_toggles,
+    set_trusted_domains,
 )
+
+FEEDBACK_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "feedback.jsonl")
 
 # How long to wait for a human to click Approve/Deny in the panel before
 # defaulting to deny. Must be well under Claude Code's own hook timeout
@@ -66,6 +72,7 @@ TARGET_KEY_MAP = {
     "NotebookEdit": "notebook_path",
     "Bash": "command",
     "WebFetch": "url",
+    "WebSearch": "query",
 }
 
 DECISION_TO_PERMISSION = {
@@ -169,6 +176,7 @@ class HookHandler(BaseHTTPRequestHandler):
                 {
                     "deny_path_patterns": get_deny_path_patterns(),
                     "rule_toggles": get_rule_toggles(),
+                    "trusted_domains": get_trusted_domains(),
                     "rule_toggle_labels": RULE_TOGGLE_LABELS,
                 }
             )
@@ -205,15 +213,28 @@ class HookHandler(BaseHTTPRequestHandler):
             self._post_tool_use()
         elif self.path == "/policies":
             self._update_policies()
+        elif self.path == "/feedback":
+            self._feedback()
         else:
             self._respond_json({"error": "not found"}, 404)
+
+    def _feedback(self):
+        record = clean_feedback(self._read_json())
+        if record is None:
+            self._respond_json({"error": "expected verdict: correct | false_positive"}, 400)
+            return
+        record["created_at"] = time.time()
+        with open(FEEDBACK_FILE, "a") as f:
+            f.write(json.dumps(record) + "\n")
+        self._respond_json({"ok": True})
 
     def _update_policies(self):
         payload = self._read_json()
         has_patterns = "deny_path_patterns" in payload
         has_toggles = "rule_toggles" in payload
-        if not has_patterns and not has_toggles:
-            self._respond_json({"error": "expected deny_path_patterns and/or rule_toggles"}, 400)
+        has_trusted = "trusted_domains" in payload
+        if not has_patterns and not has_toggles and not has_trusted:
+            self._respond_json({"error": "expected deny_path_patterns, rule_toggles and/or trusted_domains"}, 400)
             return
 
         result = {}
@@ -229,11 +250,19 @@ class HookHandler(BaseHTTPRequestHandler):
                 self._respond_json({"error": "rule_toggles must be an object"}, 400)
                 return
             result["rule_toggles"] = set_rule_toggles(toggles)
+        if has_trusted:
+            domains = payload.get("trusted_domains")
+            if not isinstance(domains, list):
+                self._respond_json({"error": "trusted_domains must be a list"}, 400)
+                return
+            result["trusted_domains"] = set_trusted_domains(domains)
 
         if not has_patterns:
             result["deny_path_patterns"] = get_deny_path_patterns()
         if not has_toggles:
             result["rule_toggles"] = get_rule_toggles()
+        if not has_trusted:
+            result["trusted_domains"] = get_trusted_domains()
         self._respond_json(result)
 
     def _pre_tool_use(self):
@@ -249,7 +278,9 @@ class HookHandler(BaseHTTPRequestHandler):
         # inside evaluate_call() itself, so both front-ends get it uniformly.
         # session_id keeps each Claude Code session's taint state isolated --
         # this process serves many sessions over its lifetime, not just one.
-        result = precheck(mapped_tool, target, tool_input, session_id=session_id)
+        # cwd: the session's folder, so a new session started there inherits
+        # the previous one's sensitive-data tags (see get_taint_context)
+        result = precheck(mapped_tool, target, tool_input, session_id=session_id, lineage=payload.get("cwd"))
 
         if result.decision == Decision.PENDING_CONFIRM:
             # Same panel, same Approve/Deny buttons the toy agent uses --
@@ -317,7 +348,7 @@ class HookHandler(BaseHTTPRequestHandler):
                 full_path = os.path.join(payload.get("cwd", ""), file_path)
                 output_text = _read_text_file(full_path)
 
-        record_tool_output(mapped_tool, target, output_text, source_hint=target, session_id=session_id)
+        record_tool_output(mapped_tool, target, output_text, source_hint=target, session_id=session_id, lineage=payload.get("cwd"))
 
         # Always allow post-hoc (data is already read); we only pause/deny
         # in PreToolUse. Empty hookSpecificOutput = no override.

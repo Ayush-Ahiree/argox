@@ -24,6 +24,7 @@ agent/.run/
 # Runtime policy state -- edited live from the UI's Policy tab, seeded
 # with sensible defaults on first run (see policy.py's _ensure_policies_file)
 agent/policies.json
+agent/feedback.jsonl
 
 # Production notes
 agenttrail-prd-v2.md

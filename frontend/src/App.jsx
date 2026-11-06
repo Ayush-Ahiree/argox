@@ -21,6 +21,7 @@ export default function App() {
   const [session, setSession] = useState(HOSTED ? undefined : null);
   const [project, setProject] = useState(null);
   const [freshApiKey, setFreshApiKey] = useState(null);
+  const [policyPrefill, setPolicyPrefill] = useState(null);
   // Signed-out visitors land on the public homepage at "/"; /login and
   // /signup open the auth card (vercel.json rewrites them to index.html).
   const [authRoute, setAuthRoute] = useState(() => authRouteFromPath(window.location.pathname));
@@ -43,7 +44,11 @@ export default function App() {
 
   // other views can ask to switch tabs (e.g. the Graph's "Open Policy" fix link)
   useEffect(() => {
-    const go = (e) => e.detail && TABS.some((t) => t.id === e.detail.view) && setView(e.detail.view);
+    const go = (e) => {
+      if (!e.detail || !TABS.some((t) => t.id === e.detail.view)) return;
+      if (e.detail.prefill) setPolicyPrefill({ ...e.detail.prefill }); // new object -> PolicyEditor re-applies it
+      setView(e.detail.view);
+    };
     window.addEventListener("argox:navigate", go);
     return () => window.removeEventListener("argox:navigate", go);
   }, []);
@@ -112,8 +117,8 @@ export default function App() {
       <div key={view} className="ax-view-enter" style={{ flex: 1, minHeight: 0 }}>
         {view === "connect" && <ConnectPanel project={project} apiKey={freshApiKey} onRegenerateKey={regenerateKey} />}
         {view === "feed" && <EventFeed wsUrl={wsUrl} authSession={session} />}
-        {view === "graph" && <Argox wsUrl={wsUrl} />}
-        {view === "policy" && <PolicyEditor project={project} session={session} />}
+        {view === "graph" && <Argox wsUrl={wsUrl} project={project} session={session} />}
+        {view === "policy" && <PolicyEditor project={project} session={session} prefill={policyPrefill} />}
       </div>
     </div>
   );

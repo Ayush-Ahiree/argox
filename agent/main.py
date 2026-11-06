@@ -47,6 +47,7 @@ from hook_server import (
     _read_text_file,
     _stringify_output,
 )
+from feedback import clean_feedback
 from instrumentation import precheck, record_confirm_resolution, record_tool_output, web_confirm
 from policy import RULE_TOGGLE_LABELS, Decision
 
@@ -160,7 +161,7 @@ async def _publish_async(project_id: str, event: dict):
 # Mirrors hook_server.py's _pre_tool_use/_post_tool_use (same TOOL_NAME_MAP,
 # same decision contract Claude Code expects), project-scoped and async.
 
-async def _decide(mapped_tool: str, target: str, params: dict, session_id: str, project_id: str, source: str) -> tuple[str, str]:
+async def _decide(mapped_tool: str, target: str, params: dict, session_id: str, project_id: str, source: str, lineage: str = None) -> tuple[str, str]:
     """Shared by /hooks/pre-tool-use (Claude-shaped) and /v1/tool-call
     (generic) -- both just need an "allow"/"deny"/"ask" verdict + reason
     for the same (tool, target) off the same policy engine; they only
@@ -178,6 +179,8 @@ async def _decide(mapped_tool: str, target: str, params: dict, session_id: str, 
         rule_toggles=policies["rule_toggles"],
         publish_fn=publish,
         source=source,
+        trusted_domains=policies["trusted_domains"],
+        lineage=lineage,
     )
 
     if result.decision != Decision.PENDING_CONFIRM:
@@ -213,7 +216,7 @@ async def pre_tool_use(payload: dict, project: dict = Depends(require_api_key_pr
     mapped_tool = TOOL_NAME_MAP.get(tool_name, tool_name.lower())
     target = _extract_target(tool_name, tool_input)
 
-    permission, reason = await _decide(mapped_tool, target, tool_input, session_id, project_id, source="claude_code")
+    permission, reason = await _decide(mapped_tool, target, tool_input, session_id, project_id, source="claude_code", lineage=payload.get("cwd"))
 
     return {
         "hookSpecificOutput": {
@@ -253,9 +256,11 @@ async def post_tool_use(payload: dict, project: dict = Depends(require_api_key_p
             output_text = _read_text_file(full_path)
 
     publish = _make_publisher(project_id)
+    policies = await db.get_policies(project_id)
     await run_in_threadpool(
         record_tool_output, mapped_tool, target, output_text,
         source_hint=target, session_id=session_id, project_id=project_id, publish_fn=publish,
+        trusted_domains=policies["trusted_domains"], lineage=payload.get("cwd"),
     )
 
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse"}}
@@ -287,7 +292,9 @@ async def tool_call(payload: dict, project: dict = Depends(require_api_key_proje
     session_id = payload.get("session_id")
     params = payload.get("input") or {}
 
-    decision, reason = await _decide(action, str(target), params, session_id, project_id, source="api")
+    # cwd (optional): lets a new session from the same agent working dir
+    # inherit the previous session's sensitive-data tags
+    decision, reason = await _decide(action, str(target), params, session_id, project_id, source="api", lineage=payload.get("cwd"))
 
     return {"decision": decision, "reason": reason}
 
@@ -303,9 +310,11 @@ async def tool_result(payload: dict, project: dict = Depends(require_api_key_pro
     output_text = _stringify_output(payload.get("output", ""))
 
     publish = _make_publisher(project_id)
+    policies = await db.get_policies(project_id)
     await run_in_threadpool(
         record_tool_output, action, str(target), output_text,
         source_hint=str(target), session_id=session_id, project_id=project_id, publish_fn=publish,
+        trusted_domains=policies["trusted_domains"], lineage=payload.get("cwd"),
     )
     return {"status": "ok"}
 
@@ -372,8 +381,29 @@ async def update_project_policies(project_id: str, payload: dict, user_id: str =
         result["deny_path_patterns"] = await db.set_deny_path_patterns(project_id, payload["deny_path_patterns"])
     if "rule_toggles" in payload:
         result["rule_toggles"] = await db.set_rule_toggles(project_id, payload["rule_toggles"])
+    if "trusted_domains" in payload:
+        if not isinstance(payload["trusted_domains"], list):
+            raise HTTPException(422, "trusted_domains must be a list")
+        try:
+            result["trusted_domains"] = await db.set_trusted_domains(project_id, payload["trusted_domains"])
+        except db.MigrationMissing as e:
+            raise HTTPException(503, str(e))
     policies = await db.get_policies(project_id)
     return {**policies, **result}
+
+
+@app.post("/projects/{project_id}/feedback")
+async def project_feedback(project_id: str, payload: dict, user_id: str = Depends(require_user)):
+    """'Was this decision right?' from the Graph's step panel."""
+    await _owned_project_or_404(project_id, user_id)
+    record = clean_feedback(payload)
+    if record is None:
+        raise HTTPException(422, "verdict must be 'correct' or 'false_positive'")
+    try:
+        await db.insert_feedback(project_id, user_id, record)
+    except db.MigrationMissing as e:
+        raise HTTPException(503, str(e))
+    return {"ok": True}
 
 
 # ------------------------------------------------------------- websocket ---

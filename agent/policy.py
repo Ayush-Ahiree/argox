@@ -11,6 +11,8 @@ import fnmatch
 import json
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import Enum
 from urllib.parse import urlparse
@@ -21,6 +23,9 @@ class Tag(str, Enum):
     SECRET = "secret"
     INTERNAL_ONLY = "internal_only"
     USER_UPLOADED = "user_uploaded"
+    # content that came from outside (web pages, API responses, MCP tools,
+    # network command output): may carry instructions aimed at the agent
+    UNTRUSTED = "untrusted"
     PUBLIC = "public"
 
 
@@ -225,7 +230,7 @@ def shell_outbound_kind(command: str, network_scripts: dict = None):
             return "external"
         if words[0].rsplit("/", 1)[-1] in LOOKUP_SHELL_COMMANDS:
             targets = [w for w in words[1:] if not w.startswith("-") and not w.isdigit()]
-            if not targets or any(t.split("@")[-1] not in ALLOWLISTED_DOMAINS for t in targets):
+            if not targets or any(not is_trusted_host(t.split("@")[-1]) for t in targets):
                 return "external"
     if network_scripts:
         for words in segments:
@@ -263,15 +268,91 @@ def script_network_reach(content: str):
             hosts.append("")
     if not hosts:
         return True
-    return any(h not in ALLOWLISTED_DOMAINS for h in hosts)
+    return any(not is_trusted_host(h) for h in hosts)
 
 # Domains considered inside the trust boundary. Extend as needed for the demo.
+# Built in; users add their own from the Policy tab ("trusted destinations",
+# see is_trusted_host / trusted_scope below).
 ALLOWLISTED_DOMAINS = {
     "localhost",
     "127.0.0.1",
     "internal.local",
     "api.your-own-service.com",  # placeholder: swap for your real internal API host
 }
+
+# User-added trusted destinations for the call currently being evaluated.
+# A ContextVar rather than a parameter threaded through every host helper
+# (_is_external, _shell_call_is_external, shell_outbound_kind, ...): each
+# request sets it for its own evaluation (trusted_scope), so the hosted
+# backend's tenants never see each other's lists. None = not set -> the
+# local policies.json list is used.
+_trusted_scope: ContextVar = ContextVar("argox_trusted_domains", default=None)
+
+_DOMAIN_RE = re.compile(r"^(\*\.)?([a-z0-9-]+\.)*[a-z0-9-]+$")
+
+
+def normalize_trusted_domain(value) -> str:
+    """'https://API.Example.com:443/path' -> 'api.example.com'. Accepts a
+    leading '*.' wildcard for subdomains. Returns None for anything that
+    isn't a plain host, and for wildcards too broad to mean anything
+    ('*', '*.com') -- trusting a destination lets secrets be sent to it,
+    so a typo must not quietly trust half the internet."""
+    if not isinstance(value, str):
+        return None
+    v = value.strip().lower()
+    wildcard = v.startswith("*.")
+    if wildcard:
+        v = v[2:]
+    if "://" in v:
+        v = urlparse(v).hostname or ""
+    v = v.split("/")[0].split("@")[-1].split(":")[0].rstrip(".")
+    if not v or not _DOMAIN_RE.match(v):
+        return None
+    if wildcard:
+        if v.count(".") < 1:
+            return None
+        return "*." + v
+    return v
+
+
+def clean_trusted_domains(domains) -> list:
+    out = []
+    for d in domains or []:
+        n = normalize_trusted_domain(d)
+        if n and n not in out:
+            out.append(n)
+    return out
+
+
+def is_trusted_host(host) -> bool:
+    """Inside the trust boundary: a built-in internal host, or one the user
+    added as a trusted destination. '*.example.com' covers subdomains
+    (api.example.com) but not example.com itself -- add both if wanted."""
+    if not host:
+        return False
+    h = str(host).strip().lower().rstrip(".")
+    if h in ALLOWLISTED_DOMAINS:
+        return True
+    extra = _trusted_scope.get()
+    if extra is None:
+        extra = get_trusted_domains()
+    for d in extra:
+        if d.startswith("*."):
+            if h.endswith(d[1:]):
+                return True
+        elif h == d:
+            return True
+    return False
+
+
+@contextmanager
+def trusted_scope(domains):
+    """Evaluate everything inside with this project's trusted destinations."""
+    token = _trusted_scope.set(tuple(clean_trusted_domains(domains)))
+    try:
+        yield
+    finally:
+        _trusted_scope.reset(token)
 
 # Hard path denylist for the Claude Code integration (Feature F, PRD 4.3):
 # admin codebase, env files, and secrets are off-limits regardless of taint
@@ -296,6 +377,8 @@ _DEFAULT_RULE_TOGGLES = {
     "pii_internal_boundary_confirm": True,
     "baseline_external_flagging": True,
     "credential_file_protection": True,
+    "untrusted_content_egress_flag": True,
+    "session_taint_carryover": True,
 }
 
 RULE_TOGGLE_LABELS = {
@@ -304,6 +387,8 @@ RULE_TOGGLE_LABELS = {
     "pii_internal_boundary_confirm": "Require approval before PII or internal-only data crosses the trust boundary",
     "baseline_external_flagging": "Flag (low-risk, still allowed) any untainted call to a new external domain",
     "credential_file_protection": "Block reading credential stores (~/.ssh, ~/.aws, cloud CLI logins, private keys) and full environment dumps",
+    "untrusted_content_egress_flag": "Flag outbound calls made after the agent read outside content (web pages, API responses, MCP tools) -- the prompt-injection pattern",
+    "session_taint_carryover": "Carry sensitive-data tracking into a new session started in the same folder within 30 minutes (e.g. after /clear or a restart)",
 }
 
 # Where developer machines keep credentials, outside any project. Built in
@@ -333,6 +418,7 @@ POLICIES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polici
 _policies_cache = {
     "patterns": list(_DEFAULT_DENY_PATH_PATTERNS),
     "toggles": dict(_DEFAULT_RULE_TOGGLES),
+    "trusted": [],
     "mtime": 0,
 }
 
@@ -341,7 +427,7 @@ def _ensure_policies_file():
     if not os.path.exists(POLICIES_FILE):
         with open(POLICIES_FILE, "w") as f:
             json.dump(
-                {"deny_path_patterns": _DEFAULT_DENY_PATH_PATTERNS, "rule_toggles": _DEFAULT_RULE_TOGGLES},
+                {"deny_path_patterns": _DEFAULT_DENY_PATH_PATTERNS, "rule_toggles": _DEFAULT_RULE_TOGGLES, "trusted_domains": []},
                 f,
                 indent=2,
             )
@@ -367,6 +453,7 @@ def _reload_if_changed():
                 merged = dict(_DEFAULT_RULE_TOGGLES)
                 merged.update({k: bool(v) for k, v in toggles.items() if k in _DEFAULT_RULE_TOGGLES})
                 _policies_cache["toggles"] = merged
+            _policies_cache["trusted"] = clean_trusted_domains(data.get("trusted_domains"))
             _policies_cache["mtime"] = mtime
     except Exception:
         pass  # keep serving the last-known-good cached state
@@ -383,10 +470,19 @@ def get_rule_toggles():
     return _policies_cache["toggles"]
 
 
+def get_trusted_domains():
+    _reload_if_changed()
+    return _policies_cache["trusted"]
+
+
 def _persist():
     with open(POLICIES_FILE, "w") as f:
         json.dump(
-            {"deny_path_patterns": _policies_cache["patterns"], "rule_toggles": _policies_cache["toggles"]},
+            {
+                "deny_path_patterns": _policies_cache["patterns"],
+                "rule_toggles": _policies_cache["toggles"],
+                "trusted_domains": _policies_cache["trusted"],
+            },
             f,
             indent=2,
         )
@@ -401,6 +497,15 @@ def set_deny_path_patterns(patterns: list):
     _policies_cache["patterns"] = clean
     _persist()
     return clean
+
+
+def set_trusted_domains(domains: list):
+    """Persist the user's trusted destinations. Invalid entries are dropped
+    (see normalize_trusted_domain)."""
+    _reload_if_changed()
+    _policies_cache["trusted"] = clean_trusted_domains(domains)
+    _persist()
+    return _policies_cache["trusted"]
 
 
 def set_rule_toggles(toggles: dict):
@@ -541,10 +646,28 @@ class PolicyResult:
     reasons: list = field(default_factory=list)
 
 
-def classify_content(text: str, source_hint: str = "") -> ClassificationResult:
+def untrusted_source(tool_name: str, target: str) -> bool:
+    """Does output from this tool come from outside the trust boundary?
+    Web fetches / API calls to untrusted hosts, web search, MCP tools (they
+    talk to outside services: issue trackers, docs, chat), and shell
+    commands that reach the network (curl output is a web page too)."""
+    t = (tool_name or "").lower()
+    if t == "call_api":
+        return _is_external(target or "")
+    if t in ("websearch", "web_search") or t.startswith("mcp__"):
+        return True
+    if t == "run_shell":
+        return shell_outbound_kind(target or "") == "external"
+    return False
+
+
+def classify_content(text: str, source_hint: str = "", tool_name: str = "") -> ClassificationResult:
     """Tag a piece of content (e.g. a file's contents, an API response body)
-    with sensitivity labels. Called at the point data ENTERS the agent."""
+    with sensitivity labels. Called at the point data ENTERS the agent.
+    tool_name: lets output from outside sources be tagged UNTRUSTED."""
     tags = set()
+    if tool_name and text and untrusted_source(tool_name, source_hint):
+        tags.add(Tag.UNTRUSTED)
     if not text:
         return ClassificationResult(tags)
 
@@ -566,7 +689,7 @@ def _is_external(target: str) -> bool:
     trust boundary?"""
     parsed = urlparse(target if "://" in target else f"//{target}")
     host = parsed.hostname or target
-    return host not in ALLOWLISTED_DOMAINS
+    return not is_trusted_host(host)
 
 
 def _shell_call_is_external(command: str) -> bool:
@@ -586,7 +709,7 @@ def _shell_call_is_external(command: str) -> bool:
         return True
     # ANY non-allowlisted host makes the whole command external -- a
     # command naming both localhost and evil.com still reaches evil.com.
-    return any(h not in ALLOWLISTED_DOMAINS for h in hosts)
+    return any(not is_trusted_host(h) for h in hosts)
 
 
 def _shell_command_hosts(command: str) -> list:
@@ -624,6 +747,25 @@ def _crosses_trust_boundary(tool_name: str, target: str, network_scripts: dict =
 
 
 def evaluate_call(
+    tool_name: str,
+    target: str,
+    params: dict,
+    inherited_tags: set,
+    deny_path_patterns: list = None,
+    rule_toggles: dict = None,
+    network_scripts: dict = None,
+    trusted_domains: list = None,
+) -> PolicyResult:
+    """trusted_domains: the project's own trusted destinations (hosted
+    backend passes them explicitly). Omitted -> whatever trusted_scope()
+    the caller set, else the local policies.json list."""
+    if trusted_domains is None:
+        return _evaluate_call(tool_name, target, params, inherited_tags, deny_path_patterns, rule_toggles, network_scripts)
+    with trusted_scope(trusted_domains):
+        return _evaluate_call(tool_name, target, params, inherited_tags, deny_path_patterns, rule_toggles, network_scripts)
+
+
+def _evaluate_call(
     tool_name: str,
     target: str,
     params: dict,
@@ -708,7 +850,22 @@ def evaluate_call(
         risk = max(risk, 60)
         return PolicyResult(Decision.PENDING_CONFIRM, risk, reasons)
 
-    # 5. Baseline: new/unrecognized external domain, no taint -> allow but flag low risk
+    # 5. Outside content earlier in the session, now an outbound call ->
+    # allow but flag. The prompt-injection pattern: a web page / API
+    # response / MCP result carries instructions, the agent acts on them by
+    # sending something somewhere. Flag, not block: research agents do this
+    # legitimately all day, and the secret/PII rules above already stop the
+    # damaging case (sensitive data held + outbound).
+    if (
+        toggles.get("untrusted_content_egress_flag", True)
+        and Tag.UNTRUSTED in inherited_tags
+        and _crosses_trust_boundary(tool_name, target, network_scripts)
+        # git push / gh pr to the user's own remote isn't an attacker's channel
+        and not (tool_name == "run_shell" and shell_outbound_kind(target, network_scripts) == "confirm")
+    ):
+        return PolicyResult(Decision.ALLOW, 40, ["untrusted_content_then_egress"])
+
+    # 6. Baseline: new/unrecognized external domain, no taint -> allow but flag low risk
     if toggles.get("baseline_external_flagging", True) and tool_name == "call_api" and _is_external(target):
         reasons.append("external_destination_untainted")
         risk = 20

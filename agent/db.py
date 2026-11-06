@@ -104,19 +104,41 @@ async def rotate_project_key(project_id: str, user_id: str, api_key_hash: str, a
 
 # ---------------------------------------------------------------- policies ---
 
-from policy import _DEFAULT_DENY_PATH_PATTERNS, _DEFAULT_RULE_TOGGLES  # one source of truth with the local backend
+from policy import _DEFAULT_DENY_PATH_PATTERNS, _DEFAULT_RULE_TOGGLES, clean_trusted_domains  # one source of truth with the local backend
+
+
+class MigrationMissing(RuntimeError):
+    """A column/table from a newer migration isn't in the database yet."""
+
+
+MIGRATION_002 = "Run agent/migrations/002_trusted_domains_feedback.sql in the Supabase SQL editor first."
+
+
+def _json(v):
+    return json.loads(v) if isinstance(v, str) else v
 
 
 async def get_policies(project_id: str) -> dict:
-    row = await pool().fetchrow(
-        "select deny_path_patterns, rule_toggles from policies where project_id = $1", project_id
-    )
+    # Tolerates a database that hasn't had migration 002 yet (no
+    # trusted_domains column): every hook decision goes through here, so a
+    # deploy that lands before the migration must not break enforcement.
+    try:
+        row = await pool().fetchrow(
+            "select deny_path_patterns, rule_toggles, trusted_domains from policies where project_id = $1", project_id
+        )
+        trusted = clean_trusted_domains(_json(row["trusted_domains"])) if row is not None else []
+    except asyncpg.exceptions.UndefinedColumnError:
+        row = await pool().fetchrow(
+            "select deny_path_patterns, rule_toggles from policies where project_id = $1", project_id
+        )
+        trusted = []
     if row is None:
         await pool().execute(
             "insert into policies (project_id) values ($1) on conflict (project_id) do nothing", project_id
         )
-        return {"deny_path_patterns": list(_DEFAULT_DENY_PATH_PATTERNS), "rule_toggles": dict(_DEFAULT_RULE_TOGGLES)}
+        return {"deny_path_patterns": list(_DEFAULT_DENY_PATH_PATTERNS), "rule_toggles": dict(_DEFAULT_RULE_TOGGLES), "trusted_domains": []}
     return {
+        "trusted_domains": trusted,
         "deny_path_patterns": json.loads(row["deny_path_patterns"]) if isinstance(row["deny_path_patterns"], str) else row["deny_path_patterns"],
         # merged over the defaults so a toggle added after this project's
         # row was created (e.g. credential_file_protection) still shows up
@@ -138,6 +160,35 @@ async def set_deny_path_patterns(project_id: str, patterns: list) -> list:
         project_id, json.dumps(clean),
     )
     return clean
+
+
+async def set_trusted_domains(project_id: str, domains: list) -> list:
+    clean = clean_trusted_domains(domains)
+    try:
+        await pool().execute(
+            """
+            insert into policies (project_id, trusted_domains) values ($1, $2)
+            on conflict (project_id) do update set trusted_domains = $2, updated_at = now()
+            """,
+            project_id, json.dumps(clean),
+        )
+    except asyncpg.exceptions.UndefinedColumnError as e:
+        raise MigrationMissing(MIGRATION_002) from e
+    return clean
+
+
+async def insert_feedback(project_id: str, user_id: str, record: dict):
+    try:
+        await pool().execute(
+            """
+            insert into feedback (project_id, user_id, verdict, session_id, tool, target, decision, reasons, note, event_ts)
+            values ($1, $2, $3, $4, $5, $6, $7, $8, $9, to_timestamp($10))
+            """,
+            project_id, user_id, record["verdict"], record["session_id"], record["tool"], record["target"],
+            record["decision"], json.dumps(record["reasons"]), record["note"], record["event_ts"],
+        )
+    except asyncpg.exceptions.UndefinedTableError as e:
+        raise MigrationMissing(MIGRATION_002) from e
 
 
 async def set_rule_toggles(project_id: str, toggles: dict) -> dict:

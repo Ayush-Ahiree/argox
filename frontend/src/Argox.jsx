@@ -6,6 +6,7 @@ import { buildTrail } from "./pathLayout.js";
 import IsoTrail, { CATEGORIES } from "./IsoTrail.jsx";
 import TwoDTrail, { LANES, laneOf, stepTitle } from "./TwoDTrail.jsx";
 import { analyzeTrail, explainStep, TAG_INFO } from "./taintFlow.js";
+import { authHeaders, feedbackUrl } from "./lib/api.js";
 
 /**
  * Live path-tracing view. Each session is an actual chain: step 1 -> 2
@@ -29,12 +30,13 @@ const MORPH_MS = 700;
 // the angle the 2D lanes tilt away to (matches the 3D camera's direction)
 const TILTED = "rotateX(42deg) rotateZ(-14deg) scale(0.86)";
 
-export default function Argox({ wsUrl = "ws://localhost:8765" }) {
+export default function Argox({ wsUrl = "ws://localhost:8765", project = null, session = null }) {
   const { events, connected } = useEventStream(wsUrl);
   const [pinnedSession, setPinnedSession] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const [focusCat, setFocusCat] = useState(null);
   const [scrubPos, setScrubPos] = useState(null); // null = show everything (live)
+  const [verdicts, setVerdicts] = useState({}); // event key -> "correct" | "false_positive" (this visit)
 
   const sessions = useMemo(() => groupBySession(events), [events]);
   const activeSessionId = pinnedSession || (sessions[0] && sessions[0].sessionId);
@@ -124,6 +126,28 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
   }, [selectedNode, prev, next]);
 
   const onSelect = (node) => setSelectedId(node && node.event ? node.id : null);
+
+  const sendFeedback = async (event, verdict) => {
+    setVerdicts((m) => ({ ...m, [event._key]: "sending" }));
+    try {
+      const r = await fetch(feedbackUrl(project), {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders(session) },
+        body: JSON.stringify({
+          verdict,
+          session_id: event.session_id,
+          tool: event.tool,
+          target: event.target,
+          decision: event.decision,
+          reasons: event.reasons || [],
+          event_ts: event.ts,
+        }),
+      });
+      setVerdicts((m) => ({ ...m, [event._key]: r.ok ? verdict : "error" }));
+    } catch {
+      setVerdicts((m) => ({ ...m, [event._key]: "error" }));
+    }
+  };
   const focusCategory = CATEGORIES.find((c) => c.id === focusCat) || null;
   const focusSteps = focusCategory ? visibleSteps.filter((n) => focusCategory.match(n)) : [];
   const is2d = mode === "2d";
@@ -255,7 +279,17 @@ export default function Argox({ wsUrl = "ws://localhost:8765" }) {
             <ResourceSteps category={focusCategory} steps={focusSteps} selectedId={selectedId} onPick={onSelect} onClose={() => setFocusCat(null)} />
           )}
           {selectedNode ? (
-            <StepDetail key={selectedNode.id} node={selectedNode} total={visibleSteps.length} prev={prev} next={next} onPick={onSelect} analysis={analysis} />
+            <StepDetail
+              key={selectedNode.id}
+              node={selectedNode}
+              total={visibleSteps.length}
+              prev={prev}
+              next={next}
+              onPick={onSelect}
+              analysis={analysis}
+              verdict={verdicts[selectedNode.event._key]}
+              onVerdict={(v) => sendFeedback(selectedNode.event, v)}
+            />
           ) : (
             !focusCategory && (
               <div style={{ fontSize: 12, color: T.inkMuted, textAlign: "center", marginTop: 20 }}>
@@ -496,7 +530,7 @@ function ResourceSteps({ category, steps, selectedId, onPick, onClose }) {
   );
 }
 
-function StepDetail({ node, total, prev, next, onPick, analysis }) {
+function StepDetail({ node, total, prev, next, onPick, analysis, verdict, onVerdict }) {
   const event = node.event;
   const ex = explainStep(node, analysis);
   const status = STATUS[eventSeverity(event)];
@@ -527,7 +561,7 @@ function StepDetail({ node, total, prev, next, onPick, analysis }) {
       <div style={{ fontFamily: T.fontMono, fontSize: 12, padding: "8px 10px", borderRadius: T.radiusSm, background: T.sunken, border: `1px solid ${T.border}`, wordBreak: "break-all", marginBottom: 12 }}>
         {event.target}
       </div>
-      <WhyPanel ex={ex} status={status} onPick={onPick} />
+      <WhyPanel ex={ex} status={status} onPick={onPick} verdict={verdict} onVerdict={onVerdict} />
       <div style={{ display: "grid", gridTemplateColumns: "84px 1fr", rowGap: 6, fontSize: 12, marginBottom: 10 }}>
         {rows.map(([k, v]) => (
           <React.Fragment key={k}>
@@ -590,10 +624,10 @@ function NavButton({ label, node, onPick, align = "left" }) {
 
 // The security story for one step: what happened, what caused it, what it
 // led to, and what you can do about it.
-function WhyPanel({ ex, status, onPick }) {
+function WhyPanel({ ex, status, onPick, verdict, onVerdict }) {
   const hasCause = ex.causes.some((c) => c.sources.length);
-  if (!ex.verdict && !ex.brought.length && !ex.ledTo.length) return null;
-  const goPolicy = () => window.dispatchEvent(new CustomEvent("argox:navigate", { detail: { view: "policy" } }));
+  if (!ex.verdict && !ex.brought.length && !ex.ledTo.length && !ex.why.length) return null;
+  const goPolicy = (prefill) => window.dispatchEvent(new CustomEvent("argox:navigate", { detail: { view: "policy", prefill } }));
   const label = { fontSize: 10.5, fontWeight: 600, letterSpacing: 0.5, color: T.inkMuted, fontFamily: T.fontMono, margin: "10px 0 5px" };
   return (
     <div style={{ marginBottom: 12, padding: "10px 12px", borderRadius: T.radius, border: `1px solid ${ex.verdict ? tint(status.color, 40) : T.border}`, background: ex.verdict ? tint(status.color, 6) : T.page }}>
@@ -639,14 +673,58 @@ function WhyPanel({ ex, status, onPick }) {
             {ex.fixes.map((f, i) => (
               <li key={i} style={{ fontSize: 12, lineHeight: 1.5, color: T.inkSecondary, marginBottom: 4 }}>
                 {f.text}
-                {f.policy && (
-                  <button onClick={goPolicy} className="ax-link-btn" style={{ marginLeft: 6, padding: 0, border: "none", background: "none", color: T.goodInk, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>
-                    Open Policy →
+                {f.action && (
+                  <button onClick={() => goPolicy(f.action.prefill)} className="ax-link-btn" style={{ marginLeft: 6, padding: 0, border: "none", background: "none", color: T.goodInk, fontWeight: 600, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>
+                    {f.action.label} →
                   </button>
                 )}
               </li>
             ))}
           </ul>
+        </>
+      )}
+
+      {ex.verdict && <VerdictRow verdict={verdict} onVerdict={onVerdict} />}
+    </div>
+  );
+}
+
+// "Was this decision right?" -- false positives are what get a security
+// tool switched off, so make reporting one a single click.
+function VerdictRow({ verdict, onVerdict }) {
+  const done = verdict === "correct" || verdict === "false_positive";
+  const btn = (v, label) => (
+    <button
+      className="ax-btn"
+      onClick={() => onVerdict(v)}
+      disabled={verdict === "sending"}
+      style={{
+        padding: "4px 10px",
+        borderRadius: T.radiusSm,
+        border: `1px solid ${T.border}`,
+        background: T.surface,
+        color: T.ink,
+        fontSize: 11.5,
+        fontWeight: 600,
+        fontFamily: T.font,
+        cursor: "pointer",
+      }}
+    >
+      {label}
+    </button>
+  );
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+      {done ? (
+        <span style={{ fontSize: 12, color: T.inkSecondary }}>
+          Thanks — recorded as {verdict === "correct" ? "the right call" : "a false positive"}.
+        </span>
+      ) : (
+        <>
+          <span style={{ fontSize: 12, color: T.inkSecondary, marginRight: 2 }}>Was this the right call?</span>
+          {btn("correct", "Yes")}
+          {btn("false_positive", "No, false positive")}
+          {verdict === "error" && <span style={{ fontSize: 11.5, color: T.criticalInk }}>Couldn't save — try again.</span>}
         </>
       )}
     </div>
