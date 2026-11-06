@@ -139,14 +139,74 @@ body {
 .ax-seg-btn {
   transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
 }
+
+/* ---- Graph: 2D lanes view, replay bar, 2D/3D morph ---- */
+@keyframes ax-card-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ax-dash {
+  to { stroke-dashoffset: -18; }
+}
+.ax-2d-card {
+  animation: ax-card-in 260ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  transition: border-color 150ms ease, box-shadow 150ms ease, opacity 200ms ease;
+}
+.ax-2d-card:hover {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+}
+.ax-2d-link {
+  animation: ax-card-in 260ms ease-out backwards;
+  transition: opacity 200ms ease;
+}
+.ax-dash {
+  animation: ax-dash 0.9s linear infinite;
+}
+/* the two Graph layers: transform = camera move, opacity = crossfade */
+.ax-morph {
+  transition: transform 700ms cubic-bezier(0.2, 0.8, 0.25, 1), opacity 420ms ease;
+}
+.ax-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right, var(--ax-ink) var(--p, 100%), var(--ax-border-strong) var(--p, 100%));
+  outline: none;
+  cursor: pointer;
+  margin: 0;
+}
+.ax-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--ax-surface);
+  border: 2px solid var(--ax-ink);
+}
+.ax-range::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ax-surface);
+  border: 2px solid var(--ax-ink);
+}
+.ax-range:focus-visible {
+  box-shadow: 0 0 0 3px var(--ax-accent-soft);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ax-view-enter,
   .ax-rise,
-  .ax-expand {
+  .ax-expand,
+  .ax-2d-card,
+  .ax-2d-link,
+  .ax-dash {
     animation: none;
   }
   .ax-tab-indicator,
-  .ax-seg-btn {
+  .ax-seg-btn,
+  .ax-morph {
     transition: none;
   }
 }

@@ -268,7 +268,9 @@ function linkPath(a, b) {
 // scroll), no drag/pan, no dashboard controls. `layoutSteps` sizes the
 // deck for a known final step count so the camera doesn't re-frame as
 // steps arrive.
-export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0 }) {
+// `flat` tilts the camera straight down (rotateX/Z -> 0); the transform
+// transition animates it, which is how the Graph tab morphs into its 2D view.
+export default function IsoTrail({ trail, sessionKey, connected, live, selectedId, onSelect, focusCat, onFocusCat, embedded = false, layoutSteps = 0, flat = false, showLegend = true }) {
   const steps = trail.nodes.filter((n) => !n.isStart);
   const start = trail.nodes.find((n) => n.isStart);
   const L = useMemo(() => layout(Math.max(steps.length, layoutSteps)), [steps.length, layoutSteps]);
@@ -277,11 +279,11 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [hoverId, setHoverId] = useState(null);
   const [hoverCatId, setHoverCatId] = useState(null);
   const dragRef = useRef(null);
+  const sceneRef = useRef(null);
   const justDraggedRef = useRef(false);
 
   useEffect(() => {
@@ -308,21 +310,23 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
   }, [sessionKey]);
 
   // fit the projected scene (ground included) into the container
-  const rx = RX + tilt.y * 3;
-  const rz = RZ + tilt.x * 4;
+  // (no mouse-follow tilt: it re-rendered and re-rasterised the whole scene on every mousemove)
+  const rx = flat ? 0 : RX;
+  const rz = flat ? 0 : RZ;
   const gw = L.PW + GROUND_MARGIN * 2;
   const gh = L.PH + GROUND_MARGIN * 2;
   const zMax = PLAT_H + AGENT_H + 10;
-  const sinRx = Math.sin((RX * Math.PI) / 180);
-  const cosRx = Math.cos((RX * Math.PI) / 180);
-  const sinRz = Math.abs(Math.sin((RZ * Math.PI) / 180));
-  const cosRz = Math.abs(Math.cos((RZ * Math.PI) / 180));
+  const sinRx = Math.sin((rx * Math.PI) / 180);
+  const cosRx = Math.cos((rx * Math.PI) / 180);
+  const sinRz = Math.abs(Math.sin((rz * Math.PI) / 180));
+  const cosRz = Math.abs(Math.cos((rz * Math.PI) / 180));
   const projW = gw * cosRz + gh * sinRz;
   const projH = (gw * sinRz + gh * cosRz) * cosRx + zMax * sinRx;
   const fit = size.width ? Math.min(size.width / projW, size.height / projH) * 1.02 : 0.5;
   // the homepage panel is small: trim the empty ground margin a touch
   const scale = fit * zoom * (embedded ? 1.06 : 1);
   const zLift = (zMax * sinRx * scale) / 2;
+  const sceneTransform = (p) => `translate(-50%, -50%) translate(${p.x}px, ${p.y + zLift}px) scale(${scale}) rotateX(${rx}deg) rotateZ(${rz}deg)`;
 
   const catStats = useMemo(
     () =>
@@ -350,24 +354,31 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
     if (embedded) return;
     dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false };
   };
+  // While dragging, write the transform straight to the DOM (no React
+  // re-render of the whole scene per mousemove); commit to state on release.
   const onPointerMove = (e) => {
-    const rect = wrapRef.current.getBoundingClientRect();
-    if (dragRef.current) {
-      const dx = e.clientX - dragRef.current.x;
-      const dy = e.clientY - dragRef.current.y;
-      if (!dragRef.current.moved && Math.hypot(dx, dy) > 4) {
-        dragRef.current.moved = true;
-        setDragging(true);
-      }
-      if (dragRef.current.moved) setPan({ x: dragRef.current.px + dx, y: dragRef.current.py + dy });
-      return;
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) > 4) {
+      d.moved = true;
+      setDragging(true);
     }
-    setTilt({ x: (e.clientX - rect.left) / rect.width - 0.5, y: (e.clientY - rect.top) / rect.height - 0.5 });
+    if (d.moved && sceneRef.current) {
+      d.cur = { x: d.px + dx, y: d.py + dy };
+      sceneRef.current.style.transform = sceneTransform(d.cur);
+    }
   };
-  const onPointerUp = (e) => {
+  const endDrag = () => {
     const d = dragRef.current;
     dragRef.current = null;
+    if (d && d.cur) setPan(d.cur);
     setDragging(false);
+    return d;
+  };
+  const onPointerUp = (e) => {
+    const d = endDrag();
     justDraggedRef.current = !!(d && d.moved);
     if (d && !d.moved && e.target === e.currentTarget) {
       onSelect(null);
@@ -388,11 +399,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      onPointerLeave={() => {
-        dragRef.current = null;
-        setDragging(false);
-        setTilt({ x: 0, y: 0 });
-      }}
+      onPointerLeave={endDrag}
       style={{
         position: "absolute",
         inset: 0,
@@ -406,6 +413,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       <style>{CSS}</style>
 
       <div
+        ref={sceneRef}
         style={{
           position: "absolute",
           left: "50%",
@@ -414,8 +422,8 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
           height: gh,
           pointerEvents: "none",
           transformStyle: "preserve-3d",
-          transform: `translate(-50%, -50%) translate(${pan.x}px, ${pan.y + zLift}px) scale(${scale}) rotateX(${rx}deg) rotateZ(${rz}deg)`,
-          transition: dragging ? "none" : "transform 600ms cubic-bezier(.2,.8,.25,1)",
+          transform: sceneTransform(pan),
+          transition: dragging ? "none" : "transform 700ms cubic-bezier(.2,.8,.25,1)",
         }}
       >
         {/* ground grid */}
@@ -673,7 +681,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
       </div>
 
       {/* overlay controls */}
-      {!embedded && (
+      {!embedded && showLegend && (
       <div style={{ position: "absolute", left: 14, bottom: 12, display: "flex", gap: 12, fontSize: 11, color: T.inkMuted, fontFamily: T.font, pointerEvents: "none" }}>
         {Object.entries(STATUS).map(([k, s]) => (
           <span key={k} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
