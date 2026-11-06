@@ -1,5 +1,22 @@
 {
-  "buildCommand": "cd frontend && npm install && npm run build",
+  "buildCommand": "cd frontend && npm install && npm run build && cd ../blog && npm install && npm run build && rm -rf ../frontend/dist/blog && cp -r dist ../frontend/dist/blog",
   "outputDirectory": "frontend/dist",
-  "rewrites": [{ "source": "/(login|signup)", "destination": "/index.html" }]
+  "redirects": [
+    {
+      "source": "/blogs",
+      "destination": "/blog/",
+      "permanent": true
+    },
+    {
+      "source": "/blogs/:path*",
+      "destination": "/blog/:path*",
+      "permanent": true
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/(login|signup)",
+      "destination": "/index.html"
+    }
+  ]
 }

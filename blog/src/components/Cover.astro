@@ -1,0 +1,80 @@
+---
+/**
+ * Generated cover art: layered gradient blobs + a dot grid + the post's
+ * glyph, all derived from `hue` and the slug, so every post gets a
+ * distinct, on-brand cover with no image files. `name` links the card's
+ * cover to the post's hero cover across page transitions.
+ */
+interface Props {
+  hue: number;
+  glyph: string;
+  seed: string;
+  name?: string;
+  size?: "card" | "hero" | "feature";
+}
+const { hue, glyph, seed, name, size = "card" } = Astro.props;
+let h = 0;
+for (const c of seed) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+const r = (n: number) => ((h >> n) & 0xff) / 255;
+const x1 = 15 + r(0) * 30, y1 = 20 + r(8) * 40, x2 = 55 + r(16) * 35, y2 = 30 + r(24) * 50;
+const h2 = (hue + 40 + r(4) * 60) % 360;
+const h3 = (hue + 180 + r(12) * 40) % 360;
+const style = `--h1:${hue};--h2:${h2};--h3:${h3};--x1:${x1}%;--y1:${y1}%;--x2:${x2}%;--y2:${y2}%`;
+---
+
+<div class={`cover cover-${size}`} style={style} transition:name={name} aria-hidden="true">
+  <div class="cover-blobs"></div>
+  <div class="cover-grid"></div>
+  <span class="cover-glyph">{glyph}</span>
+  <div class="cover-sheen"></div>
+</div>
+
+<style>
+  .cover {
+    position: relative;
+    overflow: hidden;
+    border-radius: 12px;
+    background: hsl(var(--h1) 30% 92%);
+    isolation: isolate;
+  }
+  :global(:root[data-theme="dark"]) .cover { background: hsl(var(--h1) 25% 11%); }
+  .cover-card { aspect-ratio: 16 / 9; }
+  .cover-feature { aspect-ratio: 16 / 10; height: 100%; }
+  .cover-hero { aspect-ratio: 21 / 8; border-radius: 16px; }
+  .cover-blobs {
+    position: absolute; inset: -20%;
+    background:
+      radial-gradient(40% 50% at var(--x1) var(--y1), hsl(var(--h1) 70% 55% / 0.75), transparent 70%),
+      radial-gradient(45% 55% at var(--x2) var(--y2), hsl(var(--h2) 75% 62% / 0.6), transparent 70%),
+      radial-gradient(35% 40% at 80% 85%, hsl(var(--h3) 70% 65% / 0.45), transparent 70%);
+    filter: blur(18px) saturate(1.1);
+    animation: blob 14s ease-in-out infinite alternate;
+  }
+  :global(:root[data-theme="dark"]) .cover-blobs { opacity: 0.7; }
+  .cover-grid {
+    position: absolute; inset: 0;
+    background: radial-gradient(color-mix(in srgb, var(--ink) 22%, transparent) 1px, transparent 1.2px) 0 0 / 14px 14px;
+    mask-image: radial-gradient(ellipse 70% 70% at 50% 50%, #000 30%, transparent 85%);
+    opacity: 0.45;
+  }
+  .cover-glyph {
+    position: absolute; right: 7%; bottom: 2%;
+    font-family: var(--font); font-weight: 600; font-size: clamp(64px, 9vw, 120px); line-height: 1;
+    color: hsl(var(--h1) 60% 22% / 0.85);
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+    transition: transform 700ms var(--ease-spring);
+  }
+  :global(:root[data-theme="dark"]) .cover-glyph { color: hsl(var(--h1) 60% 78% / 0.85); text-shadow: none; }
+  .cover-hero .cover-glyph { font-size: clamp(80px, 13vw, 180px); right: 5%; }
+  .cover-sheen {
+    position: absolute; inset: 0;
+    background: linear-gradient(115deg, transparent 35%, rgba(255, 255, 255, 0.35) 50%, transparent 65%);
+    transform: translateX(-120%);
+  }
+  :global(.card:hover) .cover-sheen, :global(.feature:hover) .cover-sheen { transform: translateX(120%); transition: transform 1100ms var(--ease-out); }
+  :global(.card:hover) .cover-glyph, :global(.feature:hover) .cover-glyph { transform: translateY(-6px) rotate(-6deg) scale(1.06); }
+  @keyframes blob {
+    from { transform: translate3d(0, 0, 0) rotate(0deg); }
+    to { transform: translate3d(4%, -3%, 0) rotate(8deg); }
+  }
+</style>

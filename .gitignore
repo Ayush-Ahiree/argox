@@ -2,6 +2,9 @@
 frontend/node_modules/
 frontend/dist/
 frontend/dist-ssr/
+blog/node_modules/
+blog/dist/
+blog/.astro/
 secrets/test_secret.txt
 
 # Python

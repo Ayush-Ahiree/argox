@@ -125,6 +125,7 @@ const NAV_LINKS = [
   ["#features", "Features"],
   ["#integrations", "Integrations"],
   ["#faq", "FAQ"],
+  ["/blog/", "Blog"],
 ];
 
 // Soft blurred colour blobs behind a section, so the frosted-glass
@@ -351,6 +352,7 @@ export default function Home({ onSignIn, onGetStarted }) {
           </div>
           <div className="ax-muted ax-footer-tag">AI agent security: a data firewall for Claude Code and Python agents.</div>
           <div className="ax-footer-links">
+            <a href="/blog/">Blog</a>
             <a href={GITHUB_URL} target="_blank" rel="noreferrer">GitHub</a>
             <a href={PYPI_URL} target="_blank" rel="noreferrer">PyPI</a>
             <a href={NPM_URL} target="_blank" rel="noreferrer">npm</a>

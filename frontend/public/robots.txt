@@ -4,3 +4,4 @@ Disallow: /login
 Disallow: /signup
 
 Sitemap: https://www.getargox.com/sitemap.xml
+Sitemap: https://www.getargox.com/blog/sitemap-index.xml

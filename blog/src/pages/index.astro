@@ -1,0 +1,162 @@
+---
+import Base from "../layouts/Base.astro";
+import PostCard from "../components/PostCard.astro";
+import Cover from "../components/Cover.astro";
+import { getPosts, formatDate, readingTime, tagSlug, SITE_NAME, SITE_DESCRIPTION, MAIN_SITE, u, abs } from "../lib/site";
+
+const posts = await getPosts();
+const featured = posts.find((p) => p.data.featured) || posts[0];
+const rest = posts.filter((p) => p !== featured);
+const tags = [...new Set(posts.flatMap((p) => p.data.tags))];
+
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "Blog",
+    name: SITE_NAME,
+    description: SITE_DESCRIPTION,
+    url: abs("/"),
+    publisher: { "@type": "Organization", name: "Argox", url: MAIN_SITE },
+    blogPost: posts.map((p) => ({
+      "@type": "BlogPosting",
+      headline: p.data.title,
+      url: abs(`/${p.id}/`),
+      datePublished: p.data.pubDate.toISOString(),
+    })),
+  },
+];
+const headline = ["AI", "agent", "security,"];
+---
+
+<Base title={SITE_NAME} jsonLd={jsonLd}>
+  <section class="hero">
+    <div class="orbs" aria-hidden="true"><i class="o1"></i><i class="o2"></i><i class="o3"></i></div>
+    <div class="wrap hero-inner">
+      <p class="eyebrow glass reveal"><span class="dot"></span> The Argox blog</p>
+      <h1 class="h1">
+        {headline.map((w, i) => <span class="word" style={`--i:${i}`}>{w}&nbsp;</span>)}
+        <em class="word grad" style="--i:3">in practice.</em>
+      </h1>
+      <p class="lede reveal" style="--d:300ms">
+        How AI agents actually leak data, what prompt injection looks like in a real repo, and how to stop it before the tool call runs.
+        Written by the team building Argox, with real policy decisions, not hypotheticals.
+      </p>
+    </div>
+  </section>
+
+  {
+    featured && (
+      <section class="wrap">
+        <article class="feature glass reveal" data-spot transition:name={`card-${featured.id}`}>
+          <a href={u(`/${featured.id}/`)} class="feature-link">
+            <div class="feature-cover">
+              <Cover hue={featured.data.hue} glyph={featured.data.glyph} seed={featured.id} name={`cover-${featured.id}`} size="feature" />
+            </div>
+            <div class="feature-body">
+              <span class="feature-label">Featured</span>
+              <h2 class="feature-title"><span transition:name={`title-${featured.id}`}>{featured.data.title}</span></h2>
+              <p class="feature-desc">{featured.data.description}</p>
+              <div class="feature-meta">
+                <time datetime={featured.data.pubDate.toISOString()}>{formatDate(featured.data.pubDate)}</time>
+                <span aria-hidden="true">·</span>
+                <span>{readingTime(featured.body)} min read</span>
+              </div>
+              <span class="btn feature-btn">Read the article <span class="arrow">→</span></span>
+            </div>
+          </a>
+        </article>
+      </section>
+    )
+  }
+
+  <section class="wrap list" aria-labelledby="all-h">
+    <div class="list-head reveal">
+      <h2 id="all-h" class="h2">All articles</h2>
+      <div class="filter glass" data-filter role="group" aria-label="Filter by topic">
+        <span class="filter-pill" aria-hidden="true"></span>
+        <button data-tag="all" aria-pressed="true">All</button>
+        {tags.map((t) => <button data-tag={tagSlug(t)} aria-pressed="false">{t}</button>)}
+      </div>
+    </div>
+    <div class="grid" data-filtering="all">
+      {featured && <PostCard post={featured} index={0} named={false} featuredCopy />}
+      {rest.map((p, i) => <PostCard post={p} index={i} />)}
+    </div>
+    <p class="empty" data-empty hidden>No articles on this topic yet.</p>
+  </section>
+
+  <section class="wrap">
+    <div class="cta glass reveal">
+      <div>
+        <h2 class="cta-h">Stop your agents leaking what they read.</h2>
+        <p class="cta-p">Argox tracks the secrets and personal data your agent touches and blocks them before they leave. Two commands for Claude Code.</p>
+      </div>
+      <a class="btn" href={MAIN_SITE}>See how Argox works <span class="arrow">→</span></a>
+    </div>
+  </section>
+</Base>
+
+<style>
+  .hero { position: relative; overflow: hidden; padding: 96px 0 64px; }
+  .hero::before { content: ""; position: absolute; inset: 0; background: radial-gradient(var(--gridline) 1px, transparent 1px) 0 0 / 16px 16px; mask-image: linear-gradient(#000 40%, transparent); }
+  .hero-inner { position: relative; z-index: 1; text-align: center; }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink-2); margin: 0; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); animation: pulse 2.4s ease-in-out infinite; }
+  @keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent; } }
+  .h1 { font-family: var(--font-serif); font-weight: 600; font-size: clamp(44px, 8vw, 92px); line-height: 1; letter-spacing: -0.045em; margin: 26px auto 0; max-width: 960px; text-wrap: balance; }
+  .word { display: inline-block; opacity: 0; transform: translateY(0.4em) rotate(2deg); filter: blur(8px); animation: rise 900ms var(--ease-out) forwards; animation-delay: calc(var(--i) * 90ms + 80ms); }
+  @keyframes rise { to { opacity: 1; transform: none; filter: none; } }
+  .grad { font-style: normal; background: linear-gradient(100deg, var(--accent) 10%, #2f9e7a 40%, #2f6f82 70%, var(--accent) 100%) 0 0 / 220% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: rise 900ms var(--ease-out) forwards, sheen 8s linear infinite; animation-delay: 350ms, 1.2s; padding-right: 0.06em; }
+  :global(:root[data-theme="dark"]) .grad { background-image: linear-gradient(100deg, #4fc797 10%, #a9d6e5 45%, #6fd9ab 75%, #4fc797 100%); }
+  @keyframes sheen { to { background-position: -220% 0; } }
+  .lede { font-size: clamp(17px, 2vw, 20px); line-height: 1.6; color: var(--ink-2); max-width: 640px; margin: 26px auto 0; text-wrap: pretty; }
+
+  .feature { border-radius: 20px; margin-top: 8px; position: relative; overflow: hidden; }
+  .feature::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(600px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--accent) 10%, transparent), transparent 45%); opacity: 0; transition: opacity 300ms ease; }
+  .feature:hover::after { opacity: 1; }
+  .feature-link { display: grid; grid-template-columns: 1.15fr 1fr; gap: 8px; padding: 12px; }
+  .feature-cover { min-height: 340px; }
+  .feature-cover :global(.cover) { height: 100%; aspect-ratio: auto; border-radius: 14px; }
+  .feature-body { padding: 28px 28px 24px; display: flex; flex-direction: column; justify-content: center; }
+  .feature-label { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-ink); }
+  .feature-title { font-family: var(--font-serif); font-weight: 600; font-size: clamp(28px, 3.4vw, 40px); line-height: 1.1; letter-spacing: -0.02em; margin: 12px 0 0; text-wrap: balance; }
+  .feature-desc { font-size: 17px; line-height: 1.6; color: var(--ink-2); margin: 16px 0 0; text-wrap: pretty; }
+  .feature-meta { display: flex; gap: 8px; margin-top: 18px; font-family: var(--font-mono); font-size: 13px; color: var(--muted); }
+  .feature-btn { align-self: flex-start; margin-top: 24px; }
+  .feature:hover .feature-btn::before { transform: none; }
+  .feature:hover .feature-btn { border-color: var(--accent); }
+  .feature:hover .feature-btn .arrow { transform: translateX(3px); }
+
+  .list { margin-top: 96px; }
+  .list-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
+  .h2 { font-family: var(--font-serif); font-weight: 600; font-size: clamp(30px, 4vw, 40px); letter-spacing: -0.015em; margin: 0; }
+  .filter { position: relative; display: flex; gap: 2px; padding: 4px; border-radius: 999px; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .filter::-webkit-scrollbar { display: none; }
+  .filter-pill { position: absolute; top: 4px; bottom: 4px; left: 0; width: 0; border-radius: 999px; background: var(--ink); transition: transform 420ms var(--ease-spring), width 420ms var(--ease-spring); }
+  .filter button { position: relative; z-index: 1; border: none; background: none; padding: 0 14px; height: 34px; border-radius: 999px; font-size: 13.5px; font-weight: 600; color: var(--ink-2); cursor: pointer; white-space: nowrap; transition: color 250ms ease; }
+  .filter button[aria-pressed="true"] { color: var(--page); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 22px; margin-top: 28px; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 0; }
+
+  .cta { margin-top: 110px; border-radius: 20px; padding: 40px; display: flex; align-items: center; justify-content: space-between; gap: 28px; position: relative; overflow: hidden; }
+  .cta::before { content: ""; position: absolute; width: 420px; height: 420px; right: -120px; top: -200px; border-radius: 50%; background: var(--orb-a); filter: blur(70px); z-index: -1; }
+  .cta-h { font-family: var(--font-serif); font-weight: 600; font-size: clamp(26px, 3vw, 34px); letter-spacing: -0.015em; margin: 0; }
+  .cta-p { color: var(--ink-2); margin: 10px 0 0; max-width: 560px; font-size: 16px; }
+
+  @media (max-width: 860px) {
+    .feature-link { grid-template-columns: 1fr; }
+    .feature-cover { min-height: 0; }
+    .feature-cover :global(.cover) { aspect-ratio: 16 / 9; height: auto; }
+    .feature-body { padding: 18px 14px 14px; }
+    .cta { flex-direction: column; align-items: flex-start; padding: 28px 22px; }
+  }
+  @media (max-width: 520px) {
+    .hero { padding: 64px 0 40px; }
+    .grid { grid-template-columns: 1fr; }
+    .list { margin-top: 72px; }
+    .list-head { flex-direction: column; align-items: flex-start; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .word, .grad { opacity: 1; transform: none; filter: none; animation: none; }
+  }
+</style>
