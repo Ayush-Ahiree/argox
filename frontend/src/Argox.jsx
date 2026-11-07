@@ -27,6 +27,8 @@ import { authHeaders, feedbackUrl } from "./lib/api.js";
  */
 
 const MORPH_MS = 700;
+// above this many steps the Graph opens in 2D (3D cards get too small to read)
+const MAX_3D_STEPS = 20;
 // the angle the 2D lanes tilt away to (matches the 3D camera's direction)
 const TILTED = "rotateX(42deg) rotateZ(-14deg) scale(0.86)";
 
@@ -110,6 +112,21 @@ export default function Argox({ wsUrl = "ws://localhost:8765", project = null, s
   };
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  // Long sessions are unreadable in 3D (the deck turns into one dense slab),
+  // so open them in 2D -- including a live session crossing the threshold.
+  // An explicit toggle click always wins, until you switch sessions.
+  const pickedMode = useRef(false);
+  const pickMode = (next) => {
+    pickedMode.current = true;
+    switchTo(next);
+  };
+  useEffect(() => {
+    pickedMode.current = false;
+  }, [activeSessionId]);
+  useEffect(() => {
+    if (!pickedMode.current && mode === "3d" && total > MAX_3D_STEPS) switchTo("2d");
+  }, [total, activeSessionId, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ← / → step through the selected session
   const selIndex = selectedNode ? visibleSteps.indexOf(selectedNode) : -1;
   const prev = selIndex > 0 ? visibleSteps[selIndex - 1] : null;
@@ -165,7 +182,7 @@ export default function Argox({ wsUrl = "ws://localhost:8765", project = null, s
           incIndex={incIndex}
           onIncident={gotoIncident}
           mode={mode}
-          onMode={switchTo}
+          onMode={pickMode}
         />
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden", perspective: 1800, background: T.page }}>

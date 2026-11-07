@@ -228,7 +228,8 @@ function Pipe({ x1, y1, x2, y2, color, blocked = false, delay = 0, radius = 7, d
               ...(horizontal ? { left: 4, right: 4, top: "20%", height: 2 } : { top: 4, bottom: 4, left: "20%", width: 2 }),
             }}
           />
-          {dim && <div style={{ position: "absolute", inset: 0, background: "rgba(250,249,247,0.55)" }} />}
+          {/* fade toward the page colour (not a fixed off-white) so dimming works in dark mode too */}
+          {dim && <div style={{ position: "absolute", inset: 0, background: `color-mix(in srgb, ${T.page} 55%, transparent)` }} />}
         </div>
       </Box>
       {collar(...at(endA), "a")}
@@ -619,7 +620,7 @@ export default function IsoTrail({ trail, sessionKey, connected, live, selectedI
                         </div>
                         <div style={{ fontFamily: T.fontMono, fontSize: 14, color: T.inkSecondary, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{n.label}</div>
                       </div>
-                      {dimmed && <div style={{ position: "absolute", inset: 0, background: "rgba(250,249,247,0.74)" }} />}
+                      {dimmed && <div style={{ position: "absolute", inset: 0, background: `color-mix(in srgb, ${T.page} 74%, transparent)` }} />}
                     </Box>
                   </div>
                 </div>
