@@ -33,7 +33,27 @@ const related = all
   .slice(0, 2)
   .map((x) => x.p);
 
-const jsonLd = [
+// "## FAQ" section with "### question" headings -> FAQPage structured data,
+// so search engines and AI answer engines can lift the Q&A directly.
+function plain(md: string): string {
+  return md
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+const faqBlock = (post.body || "").split(/^## FAQ\s*$/m)[1]?.split(/^## /m)[0] || "";
+const faq = faqBlock
+  .split(/^### /m)
+  .slice(1)
+  .map((chunk) => {
+    const [q, ...rest] = chunk.split("\n");
+    return { q: plain(q), a: plain(rest.join("\n")) };
+  })
+  .filter((f) => f.q && f.a);
+
+const jsonLd: Record<string, unknown>[] = [
   {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -57,6 +77,13 @@ const jsonLd = [
     ],
   },
 ];
+if (faq.length) {
+  jsonLd.push({
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: faq.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
+  });
+}
 ---
 
 <Base title={d.title} description={d.description} type="article" jsonLd={jsonLd} published={d.pubDate} modified={d.updatedDate}>
@@ -434,9 +461,11 @@ const jsonLd = [
     .prose table.stackable thead { display: none; }
     .prose table.stackable tbody, .prose table.stackable tr, .prose table.stackable td { display: block; }
     .prose table.stackable tr { padding: 12px 14px; margin-top: 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
-    .prose table.stackable td { border: none; padding: 3px 0; display: flex; gap: 12px; align-items: baseline; }
-    .prose table.stackable td::before { content: attr(data-label); flex: 0 0 38%; font-size: 0.86em; font-weight: 600; color: var(--muted); }
-    .prose table.stackable td:first-child { font-weight: 600; }
+    /* label sits in a fixed left column; the cell's own content keeps flowing inline
+       (a flex cell would turn every <code> and text run into its own squeezed column) */
+    .prose table.stackable td { border: none; padding: 3px 0 3px calc(38% + 12px); position: relative; }
+    .prose table.stackable td::before { content: attr(data-label); position: absolute; left: 0; top: 4px; width: 38%; font-size: 0.86em; font-weight: 600; color: var(--muted); }
+    .prose table.stackable td:first-child { font-weight: 600; padding-left: 0; }
     .prose table.stackable td:first-child::before { content: none; }
     .prose table.stackable td:first-child { padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
     .prose table.stackable td code { white-space: normal; overflow-wrap: anywhere; }

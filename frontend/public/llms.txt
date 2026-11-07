@@ -1,0 +1,28 @@
+# Argox
+
+> Argox is an AI agent firewall: a data firewall for AI agents. It tracks the secrets, personal data and internal files an AI agent reads during a session, and checks every tool call against them before it runs, blocking or asking for approval when that data is about to leave. It works with Claude Code (through its hooks) and with Python agents (through an SDK), plus an HTTP API for other agents.
+
+Argox is an AI agent security tool for teams that run coding agents and custom agents with access to real credentials and data. Instead of judging each command on its own, it follows the data. Running `curl` to an outside host is allowed on its own, but blocked after the agent has read a cloud key. A `git push` after reading a secret asks a person first. Calls to destinations the team marks as trusted are allowed. Outbound calls after the agent read outside content (web pages, API responses, MCP tool output) are flagged as possible prompt injection.
+
+What it does:
+- Blocks reads of protected paths such as `.env` files and credential directories, including inside scripts (`python3 -c "open('.env')"`).
+- Blocks environment dumps and requests to cloud metadata endpoints.
+- Blocks secrets leaving through HTTP, DNS lookups and other network commands. Asks before secrets are published with git or GitHub, and before personal or internal data leaves.
+- Shows every decision in a dashboard, with the earlier step that caused it, and exports decisions as OpenTelemetry traces.
+
+Get started: `npx @amisecured/argox connect`
+
+## Product
+
+- [Argox homepage](https://www.getargox.com/): what Argox is and how it works, with a live demo
+- [Python SDK on PyPI](https://pypi.org/project/argox/): `argox.check()` before each tool call
+- [CLI on npm](https://www.npmjs.com/package/@amisecured/argox): connects Claude Code
+
+## Guides
+
+- [What is an AI agent firewall?](https://www.getargox.com/blog/what-is-an-ai-agent-firewall/): prompt firewalls vs egress firewalls vs action firewalls, and what a data firewall adds
+- [What is an AI agent security tool?](https://www.getargox.com/blog/what-is-an-ai-agent-security-tool/): the six kinds of AI agent security tools and how they compare
+- [AI agent guardrails](https://www.getargox.com/blog/ai-agent-guardrails/): input, output and tool guardrails, and what research says about them
+- [Six real AI agent data leaks](https://www.getargox.com/blog/real-ai-agent-data-leaks/): GitHub MCP, Supabase MCP, Claude Code DNS, Nx, postmark-mcp, Comment and Control
+- [MCP security](https://www.getargox.com/blog/mcp-security-how-tools-leak-data/): four ways MCP tools leak data
+- [Keeping secrets away from Claude Code](https://www.getargox.com/blog/stop-claude-code-reading-env-secrets/): deny rules, sandbox, hooks and egress checks

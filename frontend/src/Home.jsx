@@ -102,6 +102,14 @@ export const FAQ = [
     a: "An AI agent security tool sits between an AI agent and the tools it uses (shell, file system, network, APIs) and decides, before each tool call runs, whether it is safe. Argox does this by tracking what sensitive data the agent has read and blocking any call that would send that data outside your trust boundary.",
   },
   {
+    q: "What is an AI agent firewall?",
+    a: "An AI agent firewall checks what an AI agent does, not just what it says. It sits between the agent and its tools (shell, files, network, APIs) and allows, blocks or asks about each action before it runs. Prompt firewalls only see text going into the model, and network firewalls only see which host is contacted. An agent firewall sees the action itself.",
+  },
+  {
+    q: "What is an AI agent data firewall?",
+    a: "A data firewall is an AI agent firewall that remembers what data the agent has read. Argox labels secrets, personal data and internal files as the agent reads them, then checks every outbound call against those labels. A curl to an outside host is fine on its own, but after the agent has read a cloud key, Argox blocks it.",
+  },
+  {
     q: "How does Argox stop data exfiltration from AI agents?",
     a: "Argox tags everything an agent reads (secrets, personal data, internal-only files, untrusted outside content) and keeps those tags on the session. When a later tool call such as curl, git push or an API request would carry tagged data to an untrusted destination, Argox blocks it or asks a human first.",
   },
@@ -350,6 +358,8 @@ export default function Home({ onSignIn, onGetStarted }) {
           <div className="ax-muted ax-footer-tag">AI agent security: a data firewall for Claude Code and Python agents.</div>
           <div className="ax-footer-links">
             <a href="/blog/">Blog</a>
+            <a href="/blog/what-is-an-ai-agent-firewall/">AI agent firewall</a>
+            <a href="/blog/what-is-an-ai-agent-security-tool/">AI agent security tools</a>
             <a href={PYPI_URL} target="_blank" rel="noreferrer">PyPI</a>
             <a href={NPM_URL} target="_blank" rel="noreferrer">npm</a>
             <button className="ax-link-btn" onClick={onSignIn}>Sign in</button>
@@ -824,7 +834,7 @@ const CSS = `
   .ax-term-body { font-size: 12px; padding: 14px; }
   .ax-demo { padding: 0 16px; }
   .ax-panel-view { min-height: 380px; }
-  .ax-footer-links { margin-left: 0; }
+  .ax-footer-links { margin-left: 0; flex-wrap: wrap; column-gap: 20px; row-gap: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ax-line, .ax-cursor, .ax-orbs i { animation: none; }
