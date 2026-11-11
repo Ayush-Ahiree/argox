@@ -15,7 +15,7 @@ const SETTINGS_SNIPPET = JSON.stringify(
     hooks: {
       PreToolUse: [
         {
-          matcher: "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep",
+          matcher: "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep|mcp__.*",
           hooks: [{ type: "http", url: "http://localhost:8090/hooks/pre-tool-use", timeout: 120 }],
         },
       ],

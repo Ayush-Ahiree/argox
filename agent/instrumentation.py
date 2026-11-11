@@ -21,13 +21,16 @@ from contextlib import contextmanager
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode, NonRecordingSpan, set_span_in_context, SpanKind
 
-from policy import classify_content, evaluate_call, script_network_reach, trusted_scope, get_rule_toggles, Decision, PolicyResult, Tag
+from policy import classify_content, evaluate_call, extract_secret_values, redact_secrets, script_network_reach, sql_is_destructive, trusted_scope, get_rule_toggles, Decision, PolicyResult, Tag
 
 tracer = trace.get_tracer("argox")
 
 # Session-level taint state: which tags are "in scope" for the current
 # agent run, accumulated as tools produce tagged output. Simple dict
 # instead of a general dataflow graph -> fast to build, good enough to demo.
+MAX_SECRET_VALUES = 500
+
+
 class TaintContext:
     def __init__(self, session_id: str = None):
         self.session_id = session_id or str(uuid.uuid4())
@@ -37,6 +40,12 @@ class TaintContext:
         # {basename: reaches_external} for files this session wrote that
         # contain network code, so running one later counts as network use
         self.network_scripts = {}
+        # the secret strings this session has read, so an outbound call can
+        # be checked for THOSE values instead of blocking everything (kept
+        # in memory only, never logged or published)
+        self.secret_values = set()
+        # names of SQL files this session wrote that drop/truncate/delete
+        self.destructive_files = set()
         self.last_active = time.time()
         # set when this session started holding another session's taint
         # (see get_taint_context's carry-over)
@@ -45,6 +54,12 @@ class TaintContext:
 
     def absorb(self, tags: set):
         self.active_tags |= tags
+
+    def remember_secrets(self, values: set):
+        for v in values:
+            if len(self.secret_values) >= MAX_SECRET_VALUES:
+                break
+            self.secret_values.add(v)
 
     def snapshot(self):
         return sorted(t.value if hasattr(t, "value") else t for t in self.active_tags)
@@ -144,6 +159,7 @@ def get_taint_context(session_id: str = None, project_id: str = None, lineage: s
                 carried = {t for t in prev.active_tags if t in _CARRY_TAGS}
                 if carried:
                     ctx.active_tags |= carried
+                    ctx.secret_values |= prev.secret_values
                     ctx.inherited_from = prev.session_id
                     ctx.inherited_tags = sorted(t.value for t in carried)
             _session_contexts[key] = ctx
@@ -178,7 +194,7 @@ def traced_tool_call(tool_name: str, target: str, params: dict):
     ctx.decision tells the caller whether to actually execute the tool."""
 
     start = time.time()
-    policy_result = evaluate_call(tool_name, target, params, taint_ctx.active_tags)
+    policy_result = evaluate_call(tool_name, target, params, taint_ctx.active_tags, secret_values=taint_ctx.secret_values)
 
     with tracer.start_as_current_span(f"tool.{tool_name}", context=_session_parent_context(taint_ctx)) as span:
         span.set_attribute("tool.name", tool_name)
@@ -286,6 +302,8 @@ def _precheck(tool_name, target, params, override_reason, session_id, project_id
             tool_name, target, params, ctx.active_tags,
             deny_path_patterns=deny_path_patterns, rule_toggles=rule_toggles,
             network_scripts=ctx.network_scripts,
+            secret_values=ctx.secret_values,
+            destructive_files=ctx.destructive_files,
         )
 
     # Remember scripts with network code as the agent writes them (Write's
@@ -295,14 +313,19 @@ def _precheck(tool_name, target, params, override_reason, session_id, project_id
     if tool_name == "write_file" and policy_result.decision != Decision.BLOCK and isinstance(params, dict):
         written = "\n".join(str(params.get(k) or "") for k in ("content", "new_string", "new_source"))
         reach = script_network_reach(written)
+        name = str(target).replace("\\", "/").rsplit("/", 1)[-1]
         if reach is not None:
-            name = str(target).replace("\\", "/").rsplit("/", 1)[-1]
             ctx.network_scripts[name] = ctx.network_scripts.get(name, False) or reach
+        # a SQL file that drops/truncates/deletes: running it later through
+        # psql -f / sqlite3 < file asks first (see destructive_command)
+        if sql_is_destructive(written):
+            ctx.destructive_files.add(name)
 
+    shown_target = redact_secrets(target, ctx.secret_values)
     with tracer.start_as_current_span(f"tool.{tool_name}", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)
-        span.set_attribute("tool.target", target)
-        span.set_attribute("tool.params_json", json.dumps(params)[:500])
+        span.set_attribute("tool.target", shown_target)
+        span.set_attribute("tool.params_json", redact_secrets(json.dumps(params, default=str)[:2000], ctx.secret_values)[:500])
         span.set_attribute("data.tags", ",".join(ctx.snapshot()))
         span.set_attribute("risk.score", policy_result.risk_score)
         span.set_attribute("policy.decision", policy_result.decision.value)
@@ -318,7 +341,7 @@ def _precheck(tool_name, target, params, override_reason, session_id, project_id
             "type": "tool_call",
             "session_id": ctx.session_id,
             "tool": tool_name,
-            "target": target,
+            "target": shown_target,
             "tags": ctx.snapshot(),
             "risk_score": policy_result.risk_score,
             "decision": policy_result.decision.value,
@@ -345,6 +368,7 @@ def record_confirm_resolution(tool_name: str, target: str, approved: bool, sessi
     ctx = get_taint_context(session_id, project_id=project_id)
     publish = publish_fn or broadcast
 
+    target = redact_secrets(target, ctx.secret_values)
     with tracer.start_as_current_span("confirm.resolution", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)
         span.set_attribute("tool.target", target)
@@ -395,6 +419,7 @@ def web_confirm(tool_name: str, target: str, reasons: list, session_id: str = No
     ctx = get_taint_context(session_id, project_id=project_id)
     publish = publish_fn or broadcast
     _session_parent_context(ctx)  # ensure root_span_context exists so trace_id below is real, not None
+    target = redact_secrets(target, ctx.secret_values)
     confirm_id = confirm_id or str(uuid.uuid4())
     publish({
         "type": "confirm_request",
@@ -451,6 +476,9 @@ def record_tool_output(tool_name: str, target: str, output_text: str, source_hin
         with trusted_scope(trusted_domains):
             result = classify_content(output_text, source_hint=source_hint or target, tool_name=tool_name)
 
+    if Tag.SECRET in result.tags:
+        ctx.remember_secrets(extract_secret_values(output_text))
+    target = redact_secrets(target, ctx.secret_values)
     with tracer.start_as_current_span("taint.classify", context=_session_parent_context(ctx)) as span:
         span.set_attribute("tool.name", tool_name)
         span.set_attribute("tool.target", target)

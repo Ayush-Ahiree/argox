@@ -90,6 +90,10 @@ def _extract_target(tool_name: str, tool_input: dict) -> str:
         base = str(tool_input.get("path") or ".")
         glob = tool_input.get("glob")
         return os.path.join(base, str(glob)) if glob else base
+    if tool_name.startswith("mcp__"):
+        # the policy engine checks the full arguments (params); the target
+        # is what the dashboard shows
+        return f"{tool_name} {json.dumps(tool_input, default=str)[:200]}"
     key = TARGET_KEY_MAP.get(tool_name)
     if key and key in tool_input:
         return str(tool_input[key])

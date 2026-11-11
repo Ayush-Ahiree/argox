@@ -47,7 +47,7 @@ SERVICES = {
 
 HOOK_CONFIG = {
     "PreToolUse": {
-        "matcher": "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep",
+        "matcher": "Read|Edit|Write|NotebookEdit|Bash|WebFetch|Grep|mcp__.*",
         "url": f"{HOOK_BASE_URL}/hooks/pre-tool-use",
         "timeout": 120,
     },
@@ -212,17 +212,29 @@ def cmd_connect(args):
             # an older connect wrote a narrower matcher (it used to miss
             # Bash/Grep/MCP output) -- bring it up to date in place
             stale = [b for b in existing if any(h.get("url") == cfg["url"] for h in b.get("hooks", [])) and b.get("matcher") != cfg["matcher"]]
+            touched = False
             for block in stale:
                 block["matcher"] = cfg["matcher"]
                 print(f"[update] {event} matcher -> {cfg['matcher']}")
+                touched = True
+            if event == "PreToolUse" and args.fail_closed:
+                for block in existing:
+                    for hook in block.get("hooks", []):
+                        if hook.get("url") == cfg["url"] and hook.get("onFailure") != "block":
+                            hook["onFailure"] = "block"
+                            print("[update] PreToolUse -> fail closed (onFailure: block)")
+                            touched = True
+            if touched:
                 changed = True
-            if not stale:
+            else:
                 print(f"[skip]  {event} already wired to {cfg['url']}")
             continue
-        existing.append({
-            "matcher": cfg["matcher"],
-            "hooks": [{"type": "http", "url": cfg["url"], "timeout": cfg["timeout"]}],
-        })
+        hook = {"type": "http", "url": cfg["url"], "timeout": cfg["timeout"]}
+        if event == "PreToolUse" and args.fail_closed:
+            # block tool calls while the hook server is unreachable or
+            # times out, instead of letting them run unchecked (v2.1.295+)
+            hook["onFailure"] = "block"
+        existing.append({"matcher": cfg["matcher"], "hooks": [hook]})
         print(f"[add]   {event} -> {cfg['url']}")
         changed = True
 
@@ -260,6 +272,7 @@ def main():
 
     p_connect = sub.add_parser("connect", help="wire hooks into a project's .claude/settings.json")
     p_connect.add_argument("project", nargs="?", help="target project directory (default: cwd)")
+    p_connect.add_argument("--fail-closed", action="store_true", help="block tool calls while the hook server is unreachable (Claude Code v2.1.295+)")
     p_connect.set_defaults(func=cmd_connect)
 
     args = parser.parse_args()
