@@ -5,9 +5,16 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import Home from "./Home.jsx";
 import { FAQ } from "./Home.jsx";
+import SitePage, { PAGES } from "./SitePages.jsx";
+
+export { PAGES };
 
 export function renderHome() {
   return renderToString(<Home onSignIn={() => {}} onGetStarted={() => {}} />);
+}
+
+export function renderPage(page) {
+  return renderToString(<SitePage page={page} onSignIn={() => {}} onGetStarted={() => {}} />);
 }
 
 export function faqJsonLd() {

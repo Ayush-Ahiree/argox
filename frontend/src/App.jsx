@@ -5,6 +5,7 @@ import PolicyEditor from "./PolicyEditor.jsx";
 import ConnectPanel from "./ConnectPanel.jsx";
 import LoginPage from "./LoginPage.jsx";
 import Home from "./Home.jsx";
+import SitePage, { pageFromPath } from "./SitePages.jsx";
 import { T, ArgoxLogo, IconSun, IconMoon, applyTheme } from "./theme.jsx";
 import { API_BASE, HOSTED, WS_BASE } from "./lib/config.js";
 import { supabase } from "./lib/supabase.js";
@@ -25,9 +26,14 @@ export default function App() {
   // Signed-out visitors land on the public homepage at "/"; /login and
   // /signup open the auth card (vercel.json rewrites them to index.html).
   const [authRoute, setAuthRoute] = useState(() => authRouteFromPath(window.location.pathname));
+  // /pricing, /terms, /refunds: public pages shown whether or not you're signed in.
+  const [sitePage, setSitePage] = useState(() => pageFromPath(window.location.pathname));
 
   useEffect(() => {
-    const onPop = () => setAuthRoute(authRouteFromPath(window.location.pathname));
+    const onPop = () => {
+      setAuthRoute(authRouteFromPath(window.location.pathname));
+      setSitePage(pageFromPath(window.location.pathname));
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -35,6 +41,7 @@ export default function App() {
   const goTo = (route) => {
     window.history.pushState(null, "", route === "home" ? "/" : `/${route}`);
     setAuthRoute(route);
+    setSitePage(null);
     window.scrollTo(0, 0);
   };
 
@@ -82,6 +89,16 @@ export default function App() {
     const data = await res.json();
     setFreshApiKey(data.api_key);
   };
+
+  if (sitePage) {
+    return (
+      <SitePage
+        page={sitePage}
+        onSignIn={() => (HOSTED && session ? (window.location.href = "/") : goTo("login"))}
+        onGetStarted={() => (HOSTED && session ? (window.location.href = "/") : goTo("signup"))}
+      />
+    );
+  }
 
   // While the session check runs, keep showing the homepage at "/" (it's
   // prerendered into index.html), rather than flashing "Loading…" over it.

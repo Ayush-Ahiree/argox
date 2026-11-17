@@ -128,10 +128,11 @@ export const FAQ = [
 ];
 
 const NAV_LINKS = [
-  ["#how", "How it works"],
-  ["#features", "Features"],
-  ["#integrations", "Integrations"],
-  ["#faq", "FAQ"],
+  ["/#how", "How it works"],
+  ["/#features", "Features"],
+  ["/#integrations", "Integrations"],
+  ["/pricing", "Pricing"],
+  ["/#faq", "FAQ"],
   ["/blog/", "Blog"],
 ];
 
@@ -148,55 +149,11 @@ function Orbs({ variant = "" }) {
 }
 
 export default function Home({ onSignIn, onGetStarted }) {
-  const [menuOpen, setMenuOpen] = useState(false);
   return (
     <div className="ax-home">
       <style>{CSS}</style>
 
-      <nav className="ax-nav" aria-label="Main">
-        <div className="ax-wrap ax-nav-inner">
-          <a href="/" className="ax-brand" aria-label="Argox home">
-            <ArgoxLogo />
-          </a>
-          <div className="ax-nav-links">
-            {NAV_LINKS.map(([href, label]) => (
-              <a key={href} href={href}>{label}</a>
-            ))}
-          </div>
-          <div className="ax-nav-cta">
-            <span className="ax-nav-theme"><ThemeToggle /></span>
-            <button className="ax-link-btn ax-nav-signin" onClick={onSignIn}>Sign in</button>
-            <button className="ax-btn ax-btn-sm" onClick={onGetStarted}>Get started</button>
-            <button
-              className="ax-icon-btn ax-menu-btn"
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              aria-expanded={menuOpen}
-              aria-controls="ax-mobile-menu"
-              onClick={() => setMenuOpen((o) => !o)}
-            >
-              <span className={`ax-burger${menuOpen ? " open" : ""}`}><i /><i /></span>
-            </button>
-          </div>
-        </div>
-        <div id="ax-mobile-menu" className={`ax-menu ax-glass${menuOpen ? " open" : ""}`} hidden={!menuOpen}>
-          {NAV_LINKS.map(([href, label]) => (
-            <a key={href} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
-          ))}
-          <div className="ax-menu-theme">
-            <span>Theme</span>
-            <ThemeToggle />
-          </div>
-          <button
-            className="ax-menu-signin"
-            onClick={() => {
-              setMenuOpen(false);
-              onSignIn();
-            }}
-          >
-            Sign in
-          </button>
-        </div>
-      </nav>
+      <SiteNav onSignIn={onSignIn} onGetStarted={onGetStarted} />
 
       <main>
         <header className="ax-hero">
@@ -350,23 +307,83 @@ export default function Home({ onSignIn, onGetStarted }) {
         </section>
       </main>
 
-      <footer className="ax-footer">
-        <div className="ax-wrap ax-footer-inner">
-          <div className="ax-brand ax-brand-sm">
-            <ArgoxLogo height={22} />
-          </div>
-          <div className="ax-muted ax-footer-tag">AI agent security: a data firewall for Claude Code and Python agents.</div>
-          <div className="ax-footer-links">
-            <a href="/blog/">Blog</a>
-            <a href="/blog/what-is-an-ai-agent-firewall/">AI agent firewall</a>
-            <a href="/blog/what-is-an-ai-agent-security-tool/">AI agent security tools</a>
-            <a href={PYPI_URL} target="_blank" rel="noreferrer">PyPI</a>
-            <a href={NPM_URL} target="_blank" rel="noreferrer">npm</a>
-            <button className="ax-link-btn" onClick={onSignIn}>Sign in</button>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter onSignIn={onSignIn} />
     </div>
+  );
+}
+
+// Shared by the homepage and the /pricing, /terms, /refunds pages (SitePages.jsx).
+export function SiteNav({ onSignIn, onGetStarted }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <nav className="ax-nav" aria-label="Main">
+      <div className="ax-wrap ax-nav-inner">
+        <a href="/" className="ax-brand" aria-label="Argox home">
+          <ArgoxLogo />
+        </a>
+        <div className="ax-nav-links">
+          {NAV_LINKS.map(([href, label]) => (
+            <a key={href} href={href}>{label}</a>
+          ))}
+        </div>
+        <div className="ax-nav-cta">
+          <span className="ax-nav-theme"><ThemeToggle /></span>
+          <button className="ax-link-btn ax-nav-signin" onClick={onSignIn}>Sign in</button>
+          <button className="ax-btn ax-btn-sm" onClick={onGetStarted}>Get started</button>
+          <button
+            className="ax-icon-btn ax-menu-btn"
+            aria-label={menuOpen ? "Close menu" : "Open menu"}
+            aria-expanded={menuOpen}
+            aria-controls="ax-mobile-menu"
+            onClick={() => setMenuOpen((o) => !o)}
+          >
+            <span className={`ax-burger${menuOpen ? " open" : ""}`}><i /><i /></span>
+          </button>
+        </div>
+      </div>
+      <div id="ax-mobile-menu" className={`ax-menu ax-glass${menuOpen ? " open" : ""}`} hidden={!menuOpen}>
+        {NAV_LINKS.map(([href, label]) => (
+          <a key={href} href={href} onClick={() => setMenuOpen(false)}>{label}</a>
+        ))}
+        <div className="ax-menu-theme">
+          <span>Theme</span>
+          <ThemeToggle />
+        </div>
+        <button
+          className="ax-menu-signin"
+          onClick={() => {
+            setMenuOpen(false);
+            onSignIn();
+          }}
+        >
+          Sign in
+        </button>
+      </div>
+    </nav>
+  );
+}
+
+export function SiteFooter({ onSignIn }) {
+  return (
+    <footer className="ax-footer">
+      <div className="ax-wrap ax-footer-inner">
+        <div className="ax-brand ax-brand-sm">
+          <ArgoxLogo height={22} />
+        </div>
+        <div className="ax-muted ax-footer-tag">AI agent security: a data firewall for Claude Code and Python agents.</div>
+        <div className="ax-footer-links">
+          <a href="/blog/">Blog</a>
+          <a href="/blog/what-is-an-ai-agent-firewall/">AI agent firewall</a>
+          <a href="/blog/what-is-an-ai-agent-security-tool/">AI agent security tools</a>
+          <a href={PYPI_URL} target="_blank" rel="noreferrer">PyPI</a>
+          <a href={NPM_URL} target="_blank" rel="noreferrer">npm</a>
+          <a href="/pricing">Pricing</a>
+          <a href="/terms">Terms</a>
+          <a href="/refunds">Refunds</a>
+          <button className="ax-link-btn" onClick={onSignIn}>Sign in</button>
+        </div>
+      </div>
+    </footer>
   );
 }
 
@@ -598,7 +615,7 @@ function Verdict({ decision }) {
   return <span className={`ax-verdict ${v.cls}`}>{v.label}</span>;
 }
 
-const CSS = `
+export const CSS = `
 .ax-home { background: ${T.page}; color: ${T.ink}; font-family: ${T.font}; min-height: 100vh; -webkit-font-smoothing: antialiased; }
 .ax-home *, .ax-home *::before, .ax-home *::after { box-sizing: border-box; }
 .ax-home a { color: inherit; text-decoration: none; }
@@ -730,7 +747,7 @@ const CSS = `
 .ax-footer { padding: 32px 0; border-top: 1px solid ${T.border}; font-size: 14px; }
 .ax-footer-inner { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
 .ax-footer-tag { font-size: 13px; }
-.ax-footer-links { display: flex; gap: 20px; margin-left: auto; color: ${T.inkSecondary}; }
+.ax-footer-links { display: flex; flex-wrap: wrap; row-gap: 6px; gap: 20px; margin-left: auto; color: ${T.inkSecondary}; }
 
 /* ---- frosted glass + colour orbs ---- */
 .ax-home { --glass-bg: rgba(255,255,255,0.55); --glass-border: rgba(255,255,255,0.75); --glass-edge: rgba(23,20,14,0.08); --glass-hl: rgba(255,255,255,0.8); --glass-shadow: 0 8px 32px -12px rgba(23,20,14,0.18); --orb-a: rgba(2,88,65,0.22); --orb-b: rgba(169,214,229,0.55); --orb-c: rgba(240,168,24,0.18); }

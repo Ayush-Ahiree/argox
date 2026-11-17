@@ -15,6 +15,10 @@
   ],
   "rewrites": [
     {
+      "source": "/:page(pricing|terms|refunds)",
+      "destination": "/:page/index.html"
+    },
+    {
       "source": "/(login|signup)",
       "destination": "/index.html"
     }
